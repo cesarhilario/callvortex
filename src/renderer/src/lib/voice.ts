@@ -191,28 +191,37 @@ class NoiseSuppressor extends AudioWorkletProcessor {
       const n = this.noise[i]
       if (sm < n) this.noise[i] = n * 0.92 + sm * 0.08
       else this.noise[i] = Math.min(n * 1.0008, sm * 1.5)
-      // Filtro de Wiener suave: ganho por SNR com piso — remove ruído sem
-      // criar os artefatos "metalizados" da subtração espectral dura
+      // Filtro de Wiener suave: ganho por SNR com piso — balanceia redução x naturalidade
       const snr = Math.max((sm - n) / Math.max(n, 1e-6), 0)
-      const g = Math.max(snr / (snr + 1), 0.15)
-      // suavização forte entre quadros (menos shimmer/musical noise)
-      const gs = 0.9 * this.gain[i] + 0.1 * g
+      // piso mais alto reduz agressividade e evita som robotizado
+      const g = Math.max(snr / (snr + 1), 0.25)
+      // suavização mais forte entre quadros (menos shimmer/musical noise)
+      const gs = 0.95 * this.gain[i] + 0.05 * g
       this.gain[i] = gs
       let g2 = gs
       if (i === 0) g2 = 0
-      else if (i === 1) g2 *= 0.25
+      else if (i === 1) g2 *= 0.5
       this.re[i] *= g2
       this.im[i] *= g2
+      const mirror = N - i
+      if (mirror !== i && mirror >= 0 && mirror < N) {
+        this.re[mirror] *= g2
+        this.im[mirror] *= g2
+      }
     }
     this.fft(this.re, this.im, true)
     let rms = 0
     for (let i = 0; i < N; i++) rms += this.re[i] * this.re[i]
     rms = Math.sqrt(rms / N)
     this.rms = 0.92 * this.rms + 0.08 * (rms + 1e-6)
-    let agc = 0.13 / this.rms
-    if (agc > 2) agc = 2
-    else if (agc < 0.5) agc = 0.5
-    this.agc = 0.95 * this.agc + 0.05 * agc
+    // AGC muito agressivo causa modulação (efeito robótico) — mantido neutro
+    let agc = 1.0
+    if (this.agc === 1) {
+      // inicializa suave
+      this.agc = 0.999 * this.agc + 0.001 * agc
+    } else {
+      this.agc = 0.99 * this.agc + 0.01 * agc
+    }
     for (let i = 0; i < N; i++) this.out[i] += this.re[i] * this.win[i] * this.agc
     for (let i = 0; i < H; i++) y[i] = this.out[i]
     for (let i = 0; i < N - H; i++) this.out[i] = this.out[i + H]
