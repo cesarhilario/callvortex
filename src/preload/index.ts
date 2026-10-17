@@ -32,7 +32,9 @@ const api = {
     getSources: (): Promise<ScreenSourceInfo[]> => ipcRenderer.invoke('screen-share:get-sources'),
     selectSource: (sourceId: string): Promise<boolean> => ipcRenderer.invoke('screen-share:select-source', sourceId),
     /** true em Wayland: o picker é o do sistema (portal), não o interno */
-    isWayland: (): Promise<boolean> => ipcRenderer.invoke('screen-share:is-wayland')
+    isWayland: (): Promise<boolean> => ipcRenderer.invoke('screen-share:is-wayland'),
+    /** true quando a plataforma oferece áudio do sistema (loopback no Windows) */
+    supportsSystemAudio: (): Promise<boolean> => ipcRenderer.invoke('screen-share:supports-system-audio')
   },
   // Voz — correção do Firewall do Windows com confirmação do sistema (UAC)
   voice: {

@@ -6,6 +6,8 @@
 
 export const MIC_STORAGE_KEY = 'selected-mic-id'
 export const NOISE_SUPPRESSION_KEY = 'noise-suppression'
+/** redução ativa de ruído (ANC: filtros + compressor) ligada/desligada */
+export const ANC_STORAGE_KEY = 'active-noise-reduction'
 export const VOICE_SESSION_KEY = 'voice-session'
 export const OUTPUT_DEVICE_KEY = 'output-device-id'
 export const OUTPUT_VOLUME_KEY = 'output-volume'

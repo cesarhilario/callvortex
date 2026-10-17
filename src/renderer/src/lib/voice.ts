@@ -1,5 +1,6 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabase } from './supabase'
+import { ScreenAudioMixer } from './screenShare/audio'
 import type { Profile, VoicePeerInfo } from './types'
 import {
   ICE_RESTART_DELAYS_MS,
@@ -101,6 +102,42 @@ function audioConstraints(deviceId?: string | null): MediaTrackConstraints {
     autoGainControl: true,
     ...(deviceId ? { deviceId: { exact: deviceId } } : {})
   }
+}
+
+/**
+ * Redução de ruído ativa (ANC) — cadeia DSP do microfone, complementando a
+ * supressão espectral (AudioWorklet) e o noiseSuppression nativo do
+ * getUserMedia. Três estágios:
+ *   1. highpass ~90 Hz  → corta rumo, vento, batidas de mesa e a frequência
+ *      fundamental de ruído estrutural (não afeta a voz humana);
+ *   2. lowpass 4 kHz    → remove chiado/assobio agudo do ambiente;
+ *   3. compressor       → domina picos (teclado, portas, sopro) para o nível
+ *      médio de fala ficar estável sem estourar o codificador.
+ * É a MESMA cadeia usada pelo teste de microfone, para ouvir exatamente o
+ * que será enviado na chamada.
+ */
+export function buildNoiseReductionChain(ctx: BaseAudioContext, input: AudioNode): AudioNode {
+  const highpass = ctx.createBiquadFilter()
+  highpass.type = 'highpass'
+  highpass.frequency.value = 90
+  highpass.Q.value = 0.707
+  input.connect(highpass)
+
+  const lowpass = ctx.createBiquadFilter()
+  lowpass.type = 'lowpass'
+  lowpass.frequency.value = 4000
+  lowpass.Q.value = 0.707
+  highpass.connect(lowpass)
+
+  const compressor = ctx.createDynamicsCompressor()
+  compressor.threshold.value = -45
+  compressor.knee.value = 30
+  compressor.ratio.value = 8
+  compressor.attack.value = 0.005
+  compressor.release.value = 0.15
+  lowpass.connect(compressor)
+
+  return compressor
 }
 
 /**
@@ -251,12 +288,22 @@ export class VoiceManager {
   private sessionKeepAlive: number | null = null
   // supressão de ruído / melhoria de qualidade (AudioWorklet)
   private noiseSuppression = true
+  // redução de ruído ativa (ANC: highpass + lowpass + compressor)
+  private activeNoiseReduction = true
   private audioCtx: AudioContext | null = null
   private workletNode: AudioWorkletNode | null = null
   private processedStream: MediaStream | null = null
   // volume do próprio microfone (0-1) aplicado ao áudio enviado
   private micVolume = 1
   private sendGain: GainNode | null = null
+  // ------------------------------------------------------------
+  // Áudio do sistema durante o compartilhamento de tela
+  // Quando a captura traz áudio do sistema, o mesh passa a receber a
+  // MIXAGEM (voz + sistema) num único track — ver lib/screenShare/audio.ts.
+  // ------------------------------------------------------------
+  private screenMix: ScreenAudioMixer | null = null
+  private screenAudioTrack: MediaStreamTrack | null = null
+  private screenDesktopAudioEnabled = true
   // saída: dispositivo (setSinkId) e volume geral aplicado ao áudio recebido
   private outputDeviceId: string | null = null
   private outputVolume = 1
@@ -295,6 +342,11 @@ export class VoiceManager {
   onPeerSignal: ((userId: string, quality: number) => void) | null = null
   /** stream de tela de um par (null quando encerrou ou desconectou) */
   onRemoteScreen: ((peerId: string, stream: MediaStream | null) => void) | null = null
+  /**
+   * Estado do áudio do sistema durante o compartilhamento:
+   * (disponível, transmitindo) — o ScreenShareManager espelha na UI.
+   */
+  onScreenAudioStateChange: ((available: boolean, enabled: boolean) => void) | null = null
   /**
    * Disparado quando respondi uma conexão sem vídeo mas estou
    * compartilhando a tela: o par entrou depois do início do
@@ -335,8 +387,14 @@ export class VoiceManager {
       outputVolume: this.outputVolume,
       outputDeviceId: this.outputDeviceId,
       noiseSuppression: this.noiseSuppression,
+      activeNoiseReduction: this.activeNoiseReduction,
       audioCtxState: this.audioCtx?.state ?? null,
       hasProcessedStream: !!this.processedStream,
+      screenSystemAudio: {
+        available: this.screenMix !== null,
+        enabled: this.screenDesktopAudioEnabled,
+        micActive: !this.localMuted && !this.deafened
+      },
       sendTrack: trackInfo(this.getSendTrack()),
       rawMicTrack: trackInfo(this.localStream?.getAudioTracks()[0] ?? null),
       peers: [...this.pcs.entries()].map(([id, pc]) => ({
@@ -649,11 +707,14 @@ export class VoiceManager {
     for (const peerId of [...this.pcs.keys()]) this.closePeer(peerId)
     for (const cleanup of this.detectorCleanups.values()) cleanup()
     this.detectorCleanups.clear()
+    // desliga a mixagem de áudio do sistema antes de derrubar as cadeias
+    this.detachScreenAudio()
     await this.stopProcessing()
     this.localStream?.getTracks().forEach((t) => t.stop())
     this.localStream = null
     // encerra qualquer sessão de tela pendente da chamada que estou deixando
     this.screenStream = null
+    this.screenDesktopAudioEnabled = true
     this.me = null
     this.localMuted = false
     this.deafened = false
@@ -787,6 +848,9 @@ export class VoiceManager {
     this.processedStream?.getAudioTracks().forEach((t) => {
       t.enabled = enabled
     })
+    // na mixagem de tela, mute/surdo afetam SÓ a voz: o áudio do sistema
+    // continua fluindo (controle independente por fonte)
+    this.screenMix?.setMicActive(enabled)
     // publica o estado (mute/surdo) para os demais participantes da sala
     this.syncPresence()
   }
@@ -822,20 +886,35 @@ export class VoiceManager {
     await this.rebuildSendTrack()
   }
 
-  /** A trilha que vai para os pares: a processada (com ganho) ou o mic cru. */
+  /**
+   * Liga/desliga a redução ativa de ruído (ANC — cadeia de filtros + compressor).
+   * Como a cadeia vive dentro do AudioContext de envio, reconstruímos a
+   * processamento e trocamos a trilha via replaceTrack (sem renegociar SDP).
+   */
+  async setActiveNoiseReduction(enabled: boolean): Promise<void> {
+    this.activeNoiseReduction = enabled
+    if (!this.channelId || !this.localStream) return // aplica no próximo join
+    await this.rebuildSendTrack()
+  }
+
+  /**
+   * A trilha que vai para os pares: a mixagem de tela (voz + áudio do
+   * sistema) quando houver, senão a processada (com ganho) ou o mic cru.
+   */
   private getSendTrack(): MediaStreamTrack | null {
+    const mixed = this.screenMix?.outputTrack
+    if (mixed) return mixed
     const t = this.processedStream?.getAudioTracks()[0]
     if (t) return t
     return this.localStream?.getAudioTracks()[0] ?? null
   }
 
-  /** (Re)constrói a cadeia de processamento e troca a trilha enviada. */
-  private async rebuildSendTrack(): Promise<void> {
-    await this.stopProcessing()
-    const ok = await this.startProcessing()
-    if (!ok && this.noiseSuppression) {
-      this.onError?.('Não foi possível ativar a redução de ruído neste dispositivo — usando áudio normal.')
-    }
+  /**
+   * Envia a trilha atual (a que getSendTrack devolver) para todos os pares.
+   * replaceTrack não exige nova negociação — por isso ligar/desligar o áudio
+   * do sistema ou trocar o microfone nunca derruba a conexão.
+   */
+  private applySendTrack(): void {
     const track = this.getSendTrack()
     if (!track) return
     for (const pc of this.pcs.values()) {
@@ -846,6 +925,18 @@ export class VoiceManager {
     this.applyLocalTrackState()
   }
 
+  /** (Re)constrói a cadeia de processamento e troca a trilha enviada. */
+  private async rebuildSendTrack(): Promise<void> {
+    await this.stopProcessing()
+    const ok = await this.startProcessing()
+    if (!ok && this.noiseSuppression) {
+      this.onError?.('Não foi possível ativar a redução de ruído neste dispositivo — usando áudio normal.')
+    }
+    // o mixer de tela lê o microfone JÁ processado: religa na nova cadeia
+    this.screenMix?.setMicStream(this.processedStream ?? this.localStream)
+    this.applySendTrack()
+  }
+
   private async startProcessing(): Promise<boolean> {
     try {
       const src = this.localStream
@@ -854,7 +945,7 @@ export class VoiceManager {
       this.audioCtx = ctx
       if (ctx.state === 'suspended') void ctx.resume()
       const source = ctx.createMediaStreamSource(src)
-      // cadeia: fonte → [supressor de ruído?] → ganho (volume) → destino
+      // cadeia: fonte → [supressor de ruído?] → [ANC?] → ganho (volume) → destino
       let node: AudioNode = source
       if (this.noiseSuppression) {
         await ctx.audioWorklet.addModule(getNoiseSuppressorModuleUrl())
@@ -866,6 +957,9 @@ export class VoiceManager {
         this.workletNode = worklet
         source.connect(worklet)
         node = worklet
+      }
+      if (this.activeNoiseReduction) {
+        node = buildNoiseReductionChain(ctx, node)
       }
       const gain = ctx.createGain()
       gain.gain.value = this.micVolume
@@ -1241,6 +1335,89 @@ export class VoiceManager {
     return this.screenStream !== null
   }
 
+  // ------------------------------------------------------------
+  // Áudio do sistema durante o compartilhamento (mixagem voz + desktop)
+  // ------------------------------------------------------------
+  /**
+   * Liga (ou troca) a fonte de áudio do sistema vinda da captura de tela.
+   * A mixagem passa a ser a trilha enviada a todos os pares via
+   * replaceTrack — nenhuma renegociação SDP é necessária.
+   */
+  private async attachScreenAudio(desktopTrack: MediaStreamTrack | null): Promise<void> {
+    if (!desktopTrack || desktopTrack.readyState === 'ended') {
+      this.detachScreenAudio()
+      return
+    }
+    const micStream = this.processedStream ?? this.localStream
+    // sem microfone vivo não há o que mixar (e sem voz a sala não serve)
+    if (!micStream || micStream.getAudioTracks().length === 0) {
+      this.detachScreenAudio()
+      return
+    }
+    try {
+      if (this.screenMix) {
+        this.screenMix.setMicStream(micStream)
+        this.screenMix.setDesktopTrack(desktopTrack)
+        this.screenMix.setMicActive(!this.localMuted && !this.deafened)
+        this.screenMix.setDesktopActive(this.screenDesktopAudioEnabled)
+      } else {
+        this.screenMix = new ScreenAudioMixer(micStream, desktopTrack)
+        this.screenMix.setMicActive(!this.localMuted && !this.deafened)
+        this.screenMix.setDesktopActive(this.screenDesktopAudioEnabled)
+      }
+      if (this.screenAudioTrack !== desktopTrack) {
+        this.screenAudioTrack?.removeEventListener('ended', this.onScreenAudioTrackEnded)
+        this.screenAudioTrack = desktopTrack
+        desktopTrack.addEventListener('ended', this.onScreenAudioTrackEnded)
+      }
+      this.applySendTrack()
+      this.onScreenAudioStateChange?.(true, this.screenDesktopAudioEnabled)
+      vdbg('mixagem de áudio do sistema ativa')
+    } catch {
+      // AudioContext indisponível: compartilha só com a voz (sem áudio do sistema)
+      this.detachScreenAudio()
+      this.onError?.('Não foi possível capturar o áudio do sistema — compartilhando somente o vídeo.')
+    }
+  }
+
+  /** Desliga a mixagem e volta a enviar o microfone processado. */
+  private detachScreenAudio(): void {
+    if (this.screenAudioTrack) {
+      this.screenAudioTrack.removeEventListener('ended', this.onScreenAudioTrackEnded)
+      this.screenAudioTrack = null
+    }
+    const had = this.screenMix !== null
+    this.screenMix?.destroy()
+    this.screenMix = null
+    if (had) {
+      // volta ao mic puro (replaceTrack: sem renegociação)
+      this.applySendTrack()
+      this.onScreenAudioStateChange?.(false, false)
+      vdbg('mixagem de áudio do sistema desligada')
+    }
+  }
+
+  /** O sistema cortou a trilha de áudio (barra de compartilhamento do SO). */
+  private readonly onScreenAudioTrackEnded = (): void => {
+    const had = this.screenMix !== null
+    this.detachScreenAudio()
+    if (had) this.onError?.('O áudio do sistema foi encerrado pelo sistema — a tela segue sendo compartilhada.')
+  }
+
+  /**
+   * Liga/desliga o áudio do sistema DURANTE o compartilhamento. Só mexe no
+   * ganho da mixagem: a conexão WebRTC não é tocada.
+   */
+  setScreenDesktopAudio(enabled: boolean): void {
+    this.screenDesktopAudioEnabled = enabled
+    this.screenMix?.setDesktopActive(enabled)
+    this.onScreenAudioStateChange?.(this.screenMix !== null, enabled)
+  }
+
+  get isScreenDesktopAudioEnabled(): boolean {
+    return this.screenDesktopAudioEnabled
+  }
+
   /**
    * Publica a trilha de vídeo em todos os PCs existentes e gera uma
    * renegociação (oferta) por par. Participantes que chegarem DEPOIS
@@ -1251,6 +1428,9 @@ export class VoiceManager {
     const [track] = stream.getVideoTracks()
     if (!track) throw new Error('A captura não contém vídeo.')
     this.screenStream = stream
+    // áudio do sistema (quando a captura trouxe): liga a mixagem ANTES das
+    // ofertas, para que pares criados em seguida já nasçam com a trilha certa
+    await this.attachScreenAudio(stream.getAudioTracks()[0] ?? null)
     const offers: PeerOffer[] = []
     for (const [peerId, pc] of this.pcs) {
       pc.addTrack(track, stream)
@@ -1290,6 +1470,9 @@ export class VoiceManager {
     const stream = this.screenStream
     this.screenStream = null
     if (!stream) return []
+    // encerra a mixagem antes de mexer nos pares: os senders de áudio voltam
+    // a enviar o microfone processado (replaceTrack, sem renegociação)
+    this.detachScreenAudio()
     const offers: PeerOffer[] = []
     for (const [peerId, pc] of this.pcs) {
       for (const sender of pc.getSenders()) {

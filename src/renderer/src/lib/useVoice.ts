@@ -4,6 +4,7 @@ import { playDeafenSound, playJoinSound, playLeaveSound, playMuteSound } from '.
 import type { Notice } from './app-types'
 import type { Profile, VoicePeerInfo } from './types'
 import {
+  ANC_STORAGE_KEY,
   MIC_STORAGE_KEY,
   MIC_VOLUME_KEY,
   NOISE_SUPPRESSION_KEY,
@@ -49,6 +50,9 @@ export interface VoiceApi {
   setOutputVolume: (volume: number) => void
   noiseSuppression: boolean
   setNoiseSuppression: (enabled: boolean) => Promise<void>
+  /** redução ativa de ruído (ANC: highpass + lowpass + compressor) */
+  activeNoiseReduction: boolean
+  setActiveNoiseReduction: (enabled: boolean) => Promise<void>
   joinVoice: (channelId: string) => Promise<void>
   leaveVoice: () => Promise<void>
   /** volta automática para a sala (rejoin) — aplica as configurações atuais */
@@ -96,6 +100,10 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
   const [selectedMicId, setSelectedMicId] = useState<string | null>(() => readRaw(MIC_STORAGE_KEY))
   const [noiseSuppression, setNoiseSuppressionState] = useState<boolean>(() => {
     const v = readRaw(NOISE_SUPPRESSION_KEY)
+    return v === null ? true : v === '1'
+  })
+  const [activeNoiseReduction, setActiveNoiseReductionState] = useState<boolean>(() => {
+    const v = readRaw(ANC_STORAGE_KEY)
     return v === null ? true : v === '1'
   })
   const [micVolume, setMicVolumeState] = useState<number>(() => readClampedNumber(MIC_VOLUME_KEY, 1, 0, 1))
@@ -211,7 +219,12 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
       if (voiceManagerRef.current?.joinedChannelId === channelId) return
       const serverId = activeServerId
       try {
-        await voiceManagerRef.current!.join(channelId, me, selectedMicId, activeServerId)
+        const manager = voiceManagerRef.current!
+        // aplica as preferências de áudio salvas ANTES de montar a cadeia
+        // de envio (a cadeia lê estes campos ao ser construída)
+        void manager.setNoiseSuppression(noiseSuppression)
+        void manager.setActiveNoiseReduction(activeNoiseReduction)
+        await manager.join(channelId, me, selectedMicId, activeServerId)
         voiceManagerRef.current!.setMicVolume(micVolume)
         if (selectedOutputId) void voiceManagerRef.current!.setOutputDevice(selectedOutputId)
         voiceManagerRef.current!.setOutputVolume(outputVolume)
@@ -226,7 +239,7 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
         notify('error', e instanceof Error ? e.message : 'Erro ao entrar no canal de voz')
       }
     },
-    [activeServerId, selectedMicId, micVolume, selectedOutputId, outputVolume, notify]
+    [activeServerId, selectedMicId, micVolume, selectedOutputId, outputVolume, noiseSuppression, activeNoiseReduction, notify]
   )
 
   const leaveVoice = useCallback(async () => {
@@ -243,7 +256,10 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
 
   const rejoin = useCallback(
     async (channelId: string, me: Profile, serverId?: string | null) => {
-      await voiceManagerRef.current!.join(channelId, me, selectedMicId, serverId)
+      const manager = voiceManagerRef.current!
+      void manager.setNoiseSuppression(noiseSuppression)
+      void manager.setActiveNoiseReduction(activeNoiseReduction)
+      await manager.join(channelId, me, selectedMicId, serverId)
       voiceManagerRef.current!.setMicVolume(micVolume)
       if (selectedOutputId) void voiceManagerRef.current!.setOutputDevice(selectedOutputId)
       voiceManagerRef.current!.setOutputVolume(outputVolume)
@@ -253,7 +269,7 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
       playJoinSound()
       notify('success', 'Você voltou ao canal de voz!')
     },
-    [selectedMicId, micVolume, selectedOutputId, outputVolume, notify]
+    [selectedMicId, micVolume, selectedOutputId, outputVolume, noiseSuppression, activeNoiseReduction, notify]
   )
 
   const reset = useCallback(() => {
@@ -313,6 +329,12 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
     await voiceManagerRef.current?.setNoiseSuppression(enabled)
   }, [])
 
+  const setActiveNoiseReduction = useCallback(async (enabled: boolean) => {
+    setActiveNoiseReductionState(enabled)
+    writeRaw(ANC_STORAGE_KEY, enabled ? '1' : '0')
+    await voiceManagerRef.current?.setActiveNoiseReduction(enabled)
+  }, [])
+
   const setMicVolume = useCallback((volume: number) => {
     const v = Math.min(1, Math.max(0, volume))
     setMicVolumeState(v)
@@ -365,6 +387,8 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
       setOutputVolume,
       noiseSuppression,
       setNoiseSuppression,
+      activeNoiseReduction,
+      setActiveNoiseReduction,
       joinVoice,
       leaveVoice,
       rejoin,
@@ -399,6 +423,8 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
       setOutputVolume,
       noiseSuppression,
       setNoiseSuppression,
+      activeNoiseReduction,
+      setActiveNoiseReduction,
       joinVoice,
       leaveVoice,
       rejoin,

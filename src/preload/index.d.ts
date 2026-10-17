@@ -27,6 +27,8 @@ export interface Api {
     selectSource: (sourceId: string) => Promise<boolean>
     /** true em Wayland: o picker é o do sistema (portal), não o interno */
     isWayland: () => Promise<boolean>
+    /** true quando a plataforma oferece áudio do sistema (loopback no Windows) */
+    supportsSystemAudio: () => Promise<boolean>
   }
   voice: {
     /** libera o áudio no Firewall do Windows (abre confirmação UAC) */

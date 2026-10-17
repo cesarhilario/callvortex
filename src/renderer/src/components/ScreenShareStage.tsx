@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../lib/useApp'
 import type { VoicePeerInfo } from '../lib/types'
-import { MonitorIcon, ExpandIcon, ShrinkIcon, PipIcon } from './Icons'
+import {
+  MonitorIcon,
+  ExpandIcon,
+  ShrinkIcon,
+  PipIcon,
+  MicIcon,
+  MicOffIcon,
+  VolumeHighIcon,
+  VolumeMuteIcon
+} from './Icons'
 
 /**
  * Palco do compartilhamento: exibe a tela de quem está compartilhando
@@ -11,7 +20,9 @@ import { MonitorIcon, ExpandIcon, ShrinkIcon, PipIcon } from './Icons'
  *   - tela cheia;  - janela flutuante (Picture-in-Picture do sistema).
  */
 export default function ScreenShareStage({ members }: { members: VoicePeerInfo[] }): React.JSX.Element | null {
-  const { profile, screenShareState, stopScreenShare } = useApp()
+  const { profile, screenShareState, stopScreenShare, setSystemAudioEnabled, voiceMuted, toggleVoiceMute } = useApp()
+  const systemAudioEnabled = screenShareState.systemAudioEnabled
+  const systemAudioAvailable = screenShareState.systemAudioAvailable
   const videoRef = useRef<HTMLVideoElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -120,6 +131,40 @@ export default function ScreenShareStage({ members }: { members: VoicePeerInfo[]
           <button className="ss-stop-btn" onClick={() => void stopScreenShare()}>
             Parar compartilhamento
           </button>
+        )}
+        {/* controles INDEPENDENTES de áudio — só fazem sentido para quem
+            compartilha: o áudio do sistema e a própria voz são fontes
+            distintas, cada uma com seu próprio on/off */}
+        {mine && (
+          <div className="ss-audio-tools" role="group" aria-label="Áudio do compartilhamento">
+            <button
+              className={`ss-audio-btn ${systemAudioEnabled ? 'on' : 'off'}`}
+              disabled={!screenShareState.systemAudioAvailable}
+              aria-pressed={systemAudioEnabled}
+              title={
+                !screenShareState.systemAudioAvailable
+                  ? 'Áudio do sistema indisponível neste dispositivo (recurso do Windows)'
+                  : systemAudioEnabled
+                    ? 'Áudio da tela: Ativo — clique para silenciar'
+                    : 'Áudio da tela: Mutado — clique para ativar'
+              }
+              onClick={() => setSystemAudioEnabled(!systemAudioEnabled)}
+            >
+              {systemAudioEnabled ? <VolumeHighIcon size={16} /> : <VolumeMuteIcon size={16} />}
+              <span className="ss-audio-name">Áudio da tela:</span>
+              <span className="ss-audio-state">{systemAudioEnabled ? 'Ativo' : 'Muted'}</span>
+            </button>
+            <button
+              className={`ss-audio-btn ${voiceMuted ? 'off' : 'on'}`}
+              aria-pressed={!voiceMuted}
+              title={voiceMuted ? 'Microfone: Mutado — clique para ativar' : 'Microfone: Ativo — clique para silenciar'}
+              onClick={toggleVoiceMute}
+            >
+              {voiceMuted ? <MicOffIcon size={16} /> : <MicIcon size={16} />}
+              <span className="ss-audio-name">Microfone:</span>
+              <span className="ss-audio-state">{voiceMuted ? 'Muted' : 'Ativo'}</span>
+            </button>
+          </div>
         )}
         {stream && trackLive && (
           <div className="ss-stage-tools">

@@ -31,6 +31,8 @@ export interface ScreenShareApi {
   closeScreenSharePicker: () => void
   /** Fase 2: fonte escolhida no picker (null = cancelou). */
   confirmScreenSource: (sourceId: string | null) => Promise<void>
+  /** Liga/desliga o áudio do sistema durante o compartilhamento (só o meu). */
+  setSystemAudioEnabled: (enabled: boolean) => void
   stopScreenShare: () => Promise<void>
 }
 
@@ -129,6 +131,10 @@ export function useScreenShare({ voiceManager, profileId, voiceChannelId, notify
     await managerRef.current!.startWithSource(sourceId)
   }, [])
 
+  const setSystemAudioEnabled = useCallback((enabled: boolean) => {
+    managerRef.current!.setSystemAudioEnabled(enabled)
+  }, [])
+
   const stopScreenShare = useCallback(async () => {
     await managerRef.current!.stop()
   }, [])
@@ -141,8 +147,18 @@ export function useScreenShare({ voiceManager, profileId, voiceChannelId, notify
       openScreenSharePicker,
       closeScreenSharePicker,
       confirmScreenSource,
+      setSystemAudioEnabled,
       stopScreenShare
     }),
-    [state, pickerOpen, loadScreenSources, openScreenSharePicker, closeScreenSharePicker, confirmScreenSource, stopScreenShare]
+    [
+      state,
+      pickerOpen,
+      loadScreenSources,
+      openScreenSharePicker,
+      closeScreenSharePicker,
+      confirmScreenSource,
+      setSystemAudioEnabled,
+      stopScreenShare
+    ]
   )
 }

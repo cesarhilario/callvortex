@@ -77,6 +77,9 @@ export interface AppContextValue {
   setOutputVolume: (volume: number) => void
   noiseSuppression: boolean
   setNoiseSuppression: (enabled: boolean) => Promise<void>
+  /** redução ativa de ruído (ANC: highpass + lowpass + compressor) */
+  activeNoiseReduction: boolean
+  setActiveNoiseReduction: (enabled: boolean) => Promise<void>
   joinVoice: (channelId: string) => Promise<void>
   leaveVoice: () => Promise<void>
   toggleVoiceMute: () => void
@@ -90,6 +93,7 @@ export interface AppContextValue {
   openScreenSharePicker: ScreenShareApi['openScreenSharePicker']
   closeScreenSharePicker: ScreenShareApi['closeScreenSharePicker']
   confirmScreenSource: ScreenShareApi['confirmScreenSource']
+  setSystemAudioEnabled: ScreenShareApi['setSystemAudioEnabled']
   stopScreenShare: ScreenShareApi['stopScreenShare']
   notify: (kind: Notice['kind'], text: string) => void
 }

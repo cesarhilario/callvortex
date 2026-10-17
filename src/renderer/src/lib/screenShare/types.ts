@@ -32,6 +32,14 @@ export interface ScreenShareState {
   remoteStream: MediaStream | null
   connectionState: RTCPeerConnectionState | null
   error: string | null
+  /**
+   * Áudio do sistema capturado junto com o vídeo (só existe onde a
+   * plataforma oferece — Windows, via loopback). Enquanto for false, o
+   * botão de áudio da tela aparece desabilitado.
+   */
+  systemAudioAvailable: boolean
+  /** Áudio do sistema está sendo transmitido (misturado à voz) agora. */
+  systemAudioEnabled: boolean
 }
 
 export type ScreenShareStatus = 'idle' | 'starting' | 'sharing' | 'stopping'
@@ -42,5 +50,7 @@ export const INITIAL_SCREEN_SHARE_STATE: ScreenShareState = {
   localStream: null,
   remoteStream: null,
   connectionState: null,
-  error: null
+  error: null,
+  systemAudioAvailable: false,
+  systemAudioEnabled: false
 }

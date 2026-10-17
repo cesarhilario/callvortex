@@ -82,6 +82,14 @@ export class ScreenShareManager {
       const relevant = this.state.sharerId === peerId || (this.state.status === 'sharing' && !!this.state.localStream)
       if (relevant) this.patch({ connectionState })
     }
+    // áudio do sistema (mixagem voz + desktop): disponibilidade e estado
+    // vêm do VoiceManager, dono real da mixagem
+    voice.onScreenAudioStateChange = (available, enabled) => {
+      this.patch({
+        systemAudioAvailable: available,
+        systemAudioEnabled: available && enabled
+      })
+    }
     // participante conectou depois do início do compartilhamento com uma
     // oferta só de áudio — envia renegociação com o vídeo para ele
     voice.onScreenRenegotiationNeeded = (peerId) => {
@@ -107,7 +115,10 @@ export class ScreenShareManager {
   }
 
   detach(): void {
-    if (this.voice) this.voice.onScreenRenegotiationNeeded = null
+    if (this.voice) {
+      this.voice.onScreenRenegotiationNeeded = null
+      this.voice.onScreenAudioStateChange = null
+    }
     this.voice = null
   }
 
@@ -326,8 +337,20 @@ export class ScreenShareManager {
       status: 'sharing',
       localStream: stream,
       sharerId: this.myId,
-      error: null
+      error: null,
+      // a mixagem de áudio já foi ligada no publishScreenTrack (via callback)
+      systemAudioAvailable: stream.getAudioTracks().length > 0
     })
+  }
+
+  /**
+   * Liga/desliga o áudio do sistema durante o compartilhamento. Só o
+   * compartilhante tem o que controlar; o ajuste é de ganho na mixagem —
+   * a conexão WebRTC não é renegociada.
+   */
+  setSystemAudioEnabled(enabled: boolean): void {
+    if (this.state.status !== 'sharing' || !this.state.systemAudioAvailable) return
+    this.voice?.setScreenDesktopAudio(enabled)
   }
 
   // ------------------------------------------------------------

@@ -105,6 +105,14 @@ app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer')
 const IS_WAYLAND =
   process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || Boolean(process.env.WAYLAND_DISPLAY))
 
+/**
+ * Áudio do sistema (WASAPI loopback) — somente o Windows oferece. É a única
+ * forma de capturar o áudio reproduzido pela máquina no Electron; em
+ * Linux/macOS o handler simplesmente não entrega áudio e a captura fica só
+ * com vídeo (comportamento original).
+ */
+const SUPPORTS_SYSTEM_AUDIO = process.platform === 'win32'
+
 // TEMPORÁRIO (diagnóstico de voz): expõe o CDP quando CV_REMOTE_DEBUG_PORT=9222
 if (process.env.CV_REMOTE_DEBUG_PORT) {
   app.commandLine.appendSwitch('remote-debugging-port', process.env.CV_REMOTE_DEBUG_PORT)
@@ -213,6 +221,15 @@ function registerScreenShareIpc(): void {
     return IS_WAYLAND
   })
 
+  // Áudio do sistema (loopback) só existe no Windows (ver Streams.audio no
+  // handler abaixo). O renderer usa isto para decidir se pede áudio no
+  // getDisplayMedia — assim Linux/macOS mantêm exatamente o comportamento
+  // antigo (só vídeo), sem risco de a requisição falhar.
+  ipcMain.handle('screen-share:supports-system-audio', (e): boolean => {
+    if (!isTrustedSender(e)) return false
+    return SUPPORTS_SYSTEM_AUDIO
+  })
+
   ipcMain.handle('screen-share:get-sources', async (e): Promise<ScreenSourceInfo[]> => {
     if (!isTrustedSender(e)) return []
     try {
@@ -251,7 +268,7 @@ function registerScreenShareIpc(): void {
   // navigator.mediaDevices.getDisplayMedia() e AQUI decidimos qual fonte
   // entregar — a escolhida no nosso picker. Esse é o único caminho que
   // funciona em Wayland (portal/PipeWire) e também cobre X11 e Windows.
-  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     // O callback é de uso ÚNICO e o Chromium pode reemitir a mesma
     // requisição (comum em Wayland/PipeWire): guarda contra chamada dupla,
     // que derrubaria a captura com "One-time callback was called more than once".
@@ -265,11 +282,21 @@ function registerScreenShareIpc(): void {
         // callback já consumido por uma reemissão anterior — ignora
       }
     }
+    /**
+     * Áudio do sistema: só quando o renderer pediu E a plataforma suporta
+     * (loopback = Windows). Sem isso a requisição com áudio seria respondida
+     * apenas com vídeo e o renderer não receberia a trilha de áudio.
+     */
+    const withVideo = (video: Electron.DesktopCapturerSource): Electron.Streams => {
+      const streams: Electron.Streams = { video }
+      if (request.audioRequested && SUPPORTS_SYSTEM_AUDIO) streams.audio = 'loopback'
+      return streams
+    }
     // Wayland: não enumera (isso abriria o portal) nem reusa uma fonte.
     // Entrega um id sintético; o Chromium/PipeWire abre o portal UMA vez,
     // no início da captura, e o usuário escolhe a tela/janela ali.
     if (IS_WAYLAND) {
-      answer({ video: { id: 'screen:0:0', name: 'Screen' } as Electron.DesktopCapturerSource })
+      answer(withVideo({ id: 'screen:0:0', name: 'Screen' } as Electron.DesktopCapturerSource))
       return
     }
 
@@ -284,7 +311,7 @@ function registerScreenShareIpc(): void {
     // diferentes do escolhido (→ NotAllowedError).
     const cached = lastScreenSources.get(wanted)
     if (cached) {
-      answer({ video: cached })
+      answer(withVideo(cached))
       return
     }
     // NÃO limpa a fonte: o Chromium pode reemitir a MESMA requisição (comum
@@ -295,7 +322,7 @@ function registerScreenShareIpc(): void {
       .getSources({ types: ['screen', 'window'] })
       .then((sources) => {
         const source = sources.find((s) => s.id === wanted)
-        if (source) answer({ video: source })
+        if (source) answer(withVideo(source))
         else answer({})
       })
       .catch(() => answer({}))

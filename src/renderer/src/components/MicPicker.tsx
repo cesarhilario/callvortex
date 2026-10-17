@@ -23,6 +23,8 @@ export default function MicPicker(): React.JSX.Element {
     setMicVolume,
     noiseSuppression,
     setNoiseSuppression,
+    activeNoiseReduction,
+    setActiveNoiseReduction,
     loadMicrophones,
     selectMicrophone
   } = useApp()
@@ -182,9 +184,30 @@ export default function MicPicker(): React.JSX.Element {
       </div>
 
       <div className="mic-picker-row noise-row">
-        <span className="mic-picker-label">Redução de ruído</span>
+        <span className="mic-picker-label">Redução de ruído (espectral)</span>
         <label className="noise-switch" title={noiseSuppression ? 'Redução de ruído ligada' : 'Redução de ruído desligada'}>
           <input type="checkbox" checked={noiseSuppression} onChange={(e) => void setNoiseSuppression(e.target.checked)} />
+          <span className="noise-switch-track">
+            <span className="noise-switch-thumb" />
+          </span>
+        </label>
+      </div>
+
+      <div className="mic-picker-row noise-row">
+        <span className="mic-picker-label">Redução de ruído ativa (ANC)</span>
+        <label
+          className="noise-switch"
+          title={
+            activeNoiseReduction
+              ? 'ANC ligada: filtros + compressor atuando (corte de graves, atenuação de agudos e normalização de picos)'
+              : 'ANC desligada: apenas os estágios nativos/espectrais'
+          }
+        >
+          <input
+            type="checkbox"
+            checked={activeNoiseReduction}
+            onChange={(e) => void setActiveNoiseReduction(e.target.checked)}
+          />
           <span className="noise-switch-track">
             <span className="noise-switch-thumb" />
           </span>
