@@ -349,7 +349,7 @@ export class ScreenShareManager {
    * a conexão WebRTC não é renegociada.
    */
   setSystemAudioEnabled(enabled: boolean): void {
-    if (this.state.status !== 'sharing' || !this.state.systemAudioAvailable) return
+    if (this.state.status !== 'sharing') return
     this.voice?.setScreenDesktopAudio(enabled)
   }
 
