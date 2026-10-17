@@ -14,6 +14,12 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabase } from '../supabase'
 import { isScreenSignalKind, type ScreenSignalKind } from './types'
+import {
+  RESUBSCRIBE_DELAYS_MS,
+  RetryScheduler,
+  delayFromSchedule,
+  isUnhealthyRealtimeStatus
+} from '../connection'
 
 export interface ScreenSignal {
   id: number
@@ -29,6 +35,11 @@ export class ScreenShareSignaling {
   private myId: string | null = null
   private signalChannel: RealtimeChannel | null = null
   private stateChannel: RealtimeChannel | null = null
+  // estabilidade: rejoin dos canais em escalada se o Realtime oscilar
+  private retries = new RetryScheduler()
+  private signalAttempt = 0
+  private stateAttempt = 0
+  private currentChannelId: string | null = null
 
   onSignal: ((signal: ScreenSignal) => void) | null = null
   /** mudanças em screen_shares do canal observado (user_id ou null) */
@@ -40,6 +51,7 @@ export class ScreenShareSignaling {
   subscribe(channelId: string, myId: string): void {
     void this.unsubscribe()
     this.myId = myId
+    this.currentChannelId = channelId
 
     const ch = getSupabase()
       .channel(`screen-signaling:${channelId}`)
@@ -58,11 +70,38 @@ export class ScreenShareSignaling {
       )
     this.signalChannel = ch
     void ch.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED' && this.signalChannel === ch) {
+      if (this.signalChannel !== ch) return
+      if (status === 'SUBSCRIBED') {
+        this.signalAttempt = 0
+        this.retries.cancel('signal-rejoin')
         // sincroniza o token (a sessão pode ter sido renovada)
         const { data } = await getSupabase().auth.getSession()
         if (data.session) getSupabase().realtime.setAuth(data.session.access_token)
+      } else if (isUnhealthyRealtimeStatus(status)) {
+        this.resubscribeSignal()
       }
+    })
+  }
+
+  /** Rejoin do canal de sinalização em escalada (teto de 15 s). */
+  private resubscribeSignal(): void {
+    const ch = this.signalChannel
+    if (!ch || !this.currentChannelId) return
+    const attempt = this.signalAttempt
+    this.signalAttempt = Math.min(this.signalAttempt + 1, RESUBSCRIBE_DELAYS_MS.length)
+    this.retries.schedule('signal-rejoin', delayFromSchedule(RESUBSCRIBE_DELAYS_MS, attempt), () => {
+      if (this.signalChannel !== ch) return
+      void ch.subscribe(async (status) => {
+        if (this.signalChannel !== ch) return
+        if (status === 'SUBSCRIBED') {
+          this.signalAttempt = 0
+          this.retries.cancel('signal-rejoin')
+          const { data } = await getSupabase().auth.getSession()
+          if (data.session) getSupabase().realtime.setAuth(data.session.access_token)
+        } else if (isUnhealthyRealtimeStatus(status)) {
+          this.resubscribeSignal()
+        }
+      })
     })
   }
 
@@ -108,7 +147,20 @@ export class ScreenShareSignaling {
         () => this.onSharerChange?.(null)
       )
     this.stateChannel = ch
-    void ch.subscribe()
+    void ch.subscribe((status) => {
+      if (this.stateChannel !== ch) return
+      if (status === 'SUBSCRIBED') {
+        this.stateAttempt = 0
+        this.retries.cancel('state-rejoin')
+      } else if (isUnhealthyRealtimeStatus(status)) {
+        const attempt = this.stateAttempt
+        this.stateAttempt = Math.min(this.stateAttempt + 1, RESUBSCRIBE_DELAYS_MS.length)
+        this.retries.schedule('state-rejoin', delayFromSchedule(RESUBSCRIBE_DELAYS_MS, attempt), () => {
+          if (this.stateChannel !== ch) return
+          void ch.subscribe()
+        })
+      }
+    })
   }
 
   async unwatchActiveShare(): Promise<void> {
@@ -126,17 +178,26 @@ export class ScreenShareSignaling {
    * Retorna false se o backend recusar (sem permissão, destinatário inválido…).
    */
   async sendSignal(channelId: string, receiverId: string, kind: ScreenSignalKind, payload: ScreenSignal['payload']): Promise<boolean> {
-    try {
-      const { error } = await getSupabase().rpc('send_call_signal', {
-        p_channel: channelId,
-        p_receiver: receiverId,
-        p_kind: kind,
-        p_payload: payload
-      })
-      return !error
-    } catch {
-      return false
+    // até 3 tentativas (falhas de rede em rajada devem reenviar, não perder
+    // a renegociação de tela inteira)
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const { error } = await getSupabase().rpc('send_call_signal', {
+          p_channel: channelId,
+          p_receiver: receiverId,
+          p_kind: kind,
+          p_payload: payload
+        })
+        if (!error) return true
+      } catch {
+        // rede instável — tenta de novo abaixo
+      }
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
     }
+    if (import.meta.env.DEV) {
+      console.debug('[screen-share] sendSignal falhou', kind, 'para', receiverId.slice(0, 8))
+    }
+    return false
   }
 
   /** dedupe local (postgres_changes pode reentregar após reconexão) */
@@ -170,6 +231,7 @@ export class ScreenShareSignaling {
   destroy(): void {
     this.onSignal = null
     this.onSharerChange = null
+    this.retries.destroy()
     void this.unsubscribe()
     void this.unwatchActiveShare()
   }

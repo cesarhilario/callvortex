@@ -198,6 +198,13 @@
   display: block;
 }
 
+/* trilha ainda não está transmitindo: mantém o <video> montado (para wire do
+   srcObject e desmutar a trilha remota), mas invisível até chegar o primeiro
+   frame */
+.ss-video-idle {
+  visibility: hidden;
+}
+
 /* botão de parar flutuante sobre o vídeo (sempre à mão) */
 .ss-stop-fab {
   position: absolute;
@@ -219,8 +226,14 @@
 }
 
 .ss-stage-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   color: var(--text-muted);
-  padding: 40px 16px;
+  padding: 16px;
   font-size: 13px;
 }
 

@@ -85,8 +85,10 @@ export interface AppContextValue {
   selectMicrophone: (deviceId: string) => Promise<void>
   // compartilhamento de tela
   screenShareState: ScreenShareApi['screenShareState']
+  screenSharePickerOpen: ScreenShareApi['screenSharePickerOpen']
   loadScreenSources: ScreenShareApi['loadScreenSources']
-  beginScreenShare: ScreenShareApi['beginScreenShare']
+  openScreenSharePicker: ScreenShareApi['openScreenSharePicker']
+  closeScreenSharePicker: ScreenShareApi['closeScreenSharePicker']
   confirmScreenSource: ScreenShareApi['confirmScreenSource']
   stopScreenShare: ScreenShareApi['stopScreenShare']
   notify: (kind: Notice['kind'], text: string) => void

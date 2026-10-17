@@ -20,7 +20,14 @@ export function getSupabase(): SupabaseClient {
       )
     }
     client = createClient(url, anonKey, {
-      auth: { persistSession: true, autoRefreshToken: true }
+      auth: { persistSession: true, autoRefreshToken: true },
+      // detecção mais rápida de queda do socket: heartbeat padrão do Realtime
+      // é 30 s; com 15 s uma queda de rede é percebida (e religada) na metade
+      // do tempo. O restante do socorro fica no sistema de estabilidade
+      // (src/renderer/src/lib/connection.ts + watchdogs em voice.ts).
+      realtime: {
+        heartbeatIntervalMs: 15_000
+      }
     })
   }
   return client

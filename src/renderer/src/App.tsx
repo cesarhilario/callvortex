@@ -8,6 +8,7 @@ import MemberList from './components/MemberList'
 import Modals from './components/Modals'
 import Logo from './components/Logo'
 import ScreenShareStage from './components/ScreenShareStage'
+import ScreenSharePicker from './components/ScreenSharePicker'
 
 function SetupScreen(): React.JSX.Element {
   return (
@@ -67,6 +68,9 @@ function MainLayout(): React.JSX.Element {
         <ChatArea />
       </div>
       {screen?.type === 'server' && <MemberList serverId={screen.serverId} />}
+      {/* Picker de fontes do compartilhamento — instância única para todo o
+          app (o botão de compartilhar aparece em mais de um lugar). */}
+      <ScreenSharePicker />
       <Toast />
       <Modals />
     </div>

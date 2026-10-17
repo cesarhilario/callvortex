@@ -30,7 +30,9 @@ const api = {
   // getDisplayMedia(), atendido pelo handler do processo principal.
   screenShare: {
     getSources: (): Promise<ScreenSourceInfo[]> => ipcRenderer.invoke('screen-share:get-sources'),
-    selectSource: (sourceId: string): Promise<boolean> => ipcRenderer.invoke('screen-share:select-source', sourceId)
+    selectSource: (sourceId: string): Promise<boolean> => ipcRenderer.invoke('screen-share:select-source', sourceId),
+    /** true em Wayland: o picker é o do sistema (portal), não o interno */
+    isWayland: (): Promise<boolean> => ipcRenderer.invoke('screen-share:is-wayland')
   },
   // Voz — correção do Firewall do Windows com confirmação do sistema (UAC)
   voice: {

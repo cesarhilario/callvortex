@@ -1,6 +1,17 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabase } from './supabase'
 import type { Profile, VoicePeerInfo } from './types'
+import {
+  ICE_RESTART_DELAYS_MS,
+  PC_RECONNECT_DELAYS_MS,
+  PRESENCE_LEAVE_GRACE_MS,
+  RESUBSCRIBE_DELAYS_MS,
+  RetryScheduler,
+  isUnhealthyRealtimeStatus,
+  delayFromSchedule,
+  watchNetworkEvents,
+  type RealtimeHealth
+} from './connection'
 
 interface SignalMsg {
   type: 'offer' | 'answer' | 'ice'
@@ -258,9 +269,25 @@ export class VoiceManager {
   private screenStream: MediaStream | null = null
   // pares que já receberam aviso de falha de conexão (evita toast repetido)
   private failedNotified = new Set<string>()
-  private failedRetry = new Set<string>()
   // membros do servidor do canal atual (null = lista indisponível, não filtra)
   private allowedMembers: Set<string> | null = null
+  // ------------------------------------------------------------
+  // Estabilidade de conexão (sistema anti-queda)
+  // ------------------------------------------------------------
+  // timers de reconexão/tolerância: chaves por par, limpos ao sair
+  private retries = new RetryScheduler()
+  // tentativa de resubscribe atual do canal Realtime (índice na agenda)
+  private realtimeAttempt = 0
+  // último estado de saúde reportado (evita notificar o mesmo estado em loop)
+  private realtimeHealth: RealtimeHealth = 'connected'
+  // cancelamento do listener de rede (registrado no join, removido no leave)
+  private netCleanup: (() => void) | null = null
+  // tentativa de ICE restart por par (índice na agenda de restart)
+  private iceRestartAttempts = new Map<string, number>()
+  // tentativa de reconexão total por par (após 'failed' de vez)
+  private pcRetryAttempts = new Map<string, number>()
+  // notifica de queda prolongada do Realtime (>10s) uma vez, sem spam
+  private outageSince: number | null = null
 
   onRoster: ((users: VoicePeerInfo[]) => void) | null = null
   onSpeaking: ((userId: string, speaking: boolean) => void) | null = null
@@ -277,6 +304,8 @@ export class VoiceManager {
   onScreenRenegotiationNeeded: ((peerId: string) => void) | null = null
   /** estado da conexão com cada par (para indicar conectando/reconectando) */
   onPeerConnectionState: ((peerId: string, state: RTCPeerConnectionState) => void) | null = null
+  /** saúde do canal Realtime (conectado/reconectando/offline) — para UI/status */
+  onRealtimeStatus: ((health: RealtimeHealth) => void) | null = null
   onError: ((message: string) => void) | null = null
 
   get joinedChannelId(): string | null {
@@ -454,11 +483,13 @@ export class VoiceManager {
     })
       .on('presence', { event: 'join' }, ({ key }) => {
         this.onRoster?.(rosterFromState())
+        // retornou dentro da tolerância: cancela o fechamento agendado
+        this.cancelPeerClose(key)
         if (key !== me.id && me.id < key && this.isAllowed(key)) void this.connectTo(key)
       })
       .on('presence', { event: 'leave' }, ({ key }) => {
         this.onRoster?.(rosterFromState())
-        if (key !== me.id) this.closePeer(key)
+        if (key !== me.id) this.schedulePeerClose(key)
       })
       .on('broadcast', { event: 'signal' }, ({ payload }) => {
         const msg = payload as SignalMsg
@@ -467,6 +498,9 @@ export class VoiceManager {
           vdbg('sinal ignorado de não-membro', msg.from.slice(0, 8))
           return
         }
+        // sinal recebido do par: ele está vivo, mesmo que a presença tenha
+        // dado leave (reconexão em curso) — cancela qualquer fechamento pendente
+        this.cancelPeerClose(msg.from)
         vdbg('sig ←', msg.type, 'de', msg.from.slice(0, 8))
         if (msg.type === 'offer' && msg.offer) {
           void this.handleOffer(msg.from, msg.offer)
@@ -477,11 +511,21 @@ export class VoiceManager {
         }
       })
 
-    void ch.subscribe(async (status) => {
-      if (status === 'SUBSCRIBED') {
-        await ch.track({ info: this.presenceInfo() })
-        // registra a atividade da sala no banco (início do relógio da sala)
-        void getSupabase().rpc('ensure_voice_session', { target_channel: channelId }).then(() => undefined, () => undefined)
+    void ch.subscribe((status) => this.handleChannelStatus(channelId, me, status))
+
+    // supervisor global de rede: se a internet voltar, religa o canal na hora
+    // (em vez de esperar o backoff da retentativa em curso)
+    this.netCleanup?.()
+    this.netCleanup = watchNetworkEvents({
+      onOnline: () => {
+        if (this.channelId !== channelId) return
+        vdbg('rede voltou — resubscribe imediato')
+        this.realtimeAttempt = 0
+        this.resubscribeRealtime(channelId, me)
+      },
+      onOffline: () => {
+        if (this.channelId !== channelId) return
+        this.reportHealth('offline')
       }
     })
 
@@ -498,11 +542,91 @@ export class VoiceManager {
     this.startStatsPolling()
   }
 
+  /** Remove o listener global de rede (join/leave são os únicos donos dele). */
+  private cancelNetWatch(): void {
+    this.netCleanup?.()
+    this.netCleanup = null
+    this.retries.cancel('outage-notice')
+  }
+
+  // ------------------------------------------------------------
+  // Supervisor do Realtime (anti-queda) — sistema central de estabilidade
+  // ------------------------------------------------------------
+  /**
+   * Reage aos status do canal: SUBSCRIBED re-tracks presença e reinicia o
+   * backoff; TIMED_OUT/CHANNEL_ERROR/CLOSED religam o canal em escalada.
+   * Sem isso, o Realtime podia morrer silenciosamente (por ex. token
+   * renovado, rede oscilando) e os participantes “desapareceriam”.
+   */
+  private handleChannelStatus(channelId: string, me: Profile, status: string): void {
+    if (this.channelId !== channelId) return // já saímos/migramos
+    if (status === 'SUBSCRIBED') {
+      this.realtimeAttempt = 0
+      this.retries.cancel('realtime')
+      this.reportHealth('connected')
+      const supabase = getSupabase()
+      void supabase.auth.getSession().then(({ data }) => {
+        if (data.session) supabase.realtime.setAuth(data.session.access_token)
+      })
+      void this.channel?.track({ info: this.presenceInfo() })
+      // re-registra a atividade da sala (o relógio pode ter morrido no outage)
+      void supabase.rpc('ensure_voice_session', { target_channel: channelId }).then(() => undefined, () => undefined)
+      return
+    }
+    if (!isUnhealthyRealtimeStatus(status)) return
+    // canal morto: agenda rejoin em escalada com teto de 15 s
+    vdbg('realtime', status, '— reagendando rejoin (tentativa', this.realtimeAttempt, ')')
+    this.reportHealth('reconnecting')
+    this.resubscribeRealtime(channelId, me)
+  }
+
+  /** Re-subscribe do canal atual com delay da agenda (idempotente por chave). */
+  private resubscribeRealtime(channelId: string, me: Profile): void {
+    if (!this.channel || this.channelId !== channelId || navigator.onLine === false) return // espera 'online'
+    const ch = this.channel
+    const attempt = this.realtimeAttempt
+    this.realtimeAttempt = Math.min(this.realtimeAttempt + 1, RESUBSCRIBE_DELAYS_MS.length)
+    this.retries.schedule('realtime', delayFromSchedule(RESUBSCRIBE_DELAYS_MS, attempt), () => {
+      if (this.channel !== ch || this.channelId !== channelId) return
+      vdbg('realtime rejoin tentativa', attempt)
+      void ch.subscribe((status) => this.handleChannelStatus(channelId, me, status))
+    })
+  }
+
+  /** Emite à UI somente mudança de estado; queda prolongada vira aviso 1x. */
+  private reportHealth(health: RealtimeHealth): void {
+    if (health === this.realtimeHealth) return
+    this.realtimeHealth = health
+    if (health === 'connected') {
+      this.outageSince = null
+      this.retries.cancel('outage-notice')
+    } else if (health === 'reconnecting') {
+      if (this.outageSince === null) this.outageSince = Date.now()
+      // avisa o usuário uma única vez se a queda se arrastar
+      this.retries.schedule('outage-notice', 10_000, () => {
+        if (this.realtimeHealth !== 'connected') {
+          this.onError?.('Conexão instável com o servidor — reconectando automaticamente…')
+        }
+      })
+    } else if (health === 'offline') {
+      this.outageSince = Date.now()
+    }
+    this.onRealtimeStatus?.(health)
+  }
+
   async leave(): Promise<void> {
     const channel = this.channel
     const leavingChannelId = this.channelId
     this.channel = null
     this.channelId = null
+
+    // encerra o supervisor de estabilidade e todos os timers pendentes
+    this.retries.destroy()
+    this.iceRestartAttempts.clear()
+    this.pcRetryAttempts.clear()
+    this.outageSince = null
+    this.realtimeHealth = 'connected'
+    this.cancelNetWatch()
 
     // se eu era a última pessoa na sala, encerra a sessão de atividade
     let lastOne = true
@@ -536,7 +660,6 @@ export class VoiceManager {
     this.stopStatsPolling()
     this.peerSignals.clear()
     this.failedNotified.clear()
-    this.failedRetry.clear()
     this.allowedMembers = null
     for (const userId of [...this.speaking]) this.setSpeaking(userId, false)
     this.onRoster?.([])
@@ -790,16 +913,15 @@ export class VoiceManager {
     }
 
     pc.ontrack = (e) => {
-      const [stream] = e.streams
-      if (!stream) return
-      if (stream.getTracks().some((t) => t.kind === 'video')) {
-        // stream de compartilhamento de tela (vídeo)
-        this.onRemoteScreen?.(peerId, stream)
-        const [videoTrack] = stream.getVideoTracks()
+      if (e.track.kind === 'video') {
+        const screenStream = e.streams[0] ?? new MediaStream([e.track])
+        this.onRemoteScreen?.(peerId, screenStream)
+        const videoTrack = screenStream.getVideoTracks()[0] ?? e.track
         videoTrack?.addEventListener('ended', () => this.onRemoteScreen?.(peerId, null))
-      } else {
-        this.attachRemote(peerId, stream)
+        return
       }
+      const audioStream = e.streams[0] ?? new MediaStream([e.track])
+      this.attachRemote(peerId, audioStream)
     }
 
       pc.onconnectionstatechange = () => {
@@ -809,31 +931,29 @@ export class VoiceManager {
         if (st === 'disconnected' || st === 'failed') {
           void this.logPairStats(peerId, pc)
         }
-        if (st === 'failed') {
-          // primeira falha: tenta reconectar automaticamente (pode ser soluço
-          // de renegociação ou rede instável) — só avisa se persistir
-          const firstAttempt = !this.failedRetry.has(peerId)
-          this.failedRetry.add(peerId)
-          this.closePeer(peerId)
-          if (firstAttempt) {
-            vdbg('par', peerId.slice(0, 8), 'falhou — reconectando automaticamente')
-            window.setTimeout(() => {
-              if (this.channelId && !this.pcs.has(peerId)) void this.connectTo(peerId)
-            }, 1500)
-          } else if (!this.failedNotified.has(peerId)) {
-            this.failedNotified.add(peerId)
-            const extra = navigator.userAgent.includes('Windows')
-              ? ' No Windows, permita o CallVortex no Firewall (Privado e Público).'
-              : ''
-            this.onError?.(
-              'Não foi possível conectar a um participante (rede bloqueada ou relay indisponível).' +
-                extra +
-                ' Chamadas entre redes diferentes precisam do relay: deixe o PC do criador ligado (coturn) ou configure VITE_TURN_URLS.'
-            )
-          }
+        if (st === 'connected') {
+          // saudável de novo: limpa TODA a esteira de recuperação deste par
+          this.retries.cancel(`pc-reconnect:${peerId}`)
+          this.retries.cancel(`ice-restart:${peerId}`)
+          this.retries.cancel(`peer-close:${peerId}`)
+          this.iceRestartAttempts.delete(peerId)
+          this.pcRetryAttempts.delete(peerId)
+          this.failedNotified.delete(peerId)
           return
         }
-        // 'disconnected' pode ser só um soluço da rede; só encerra em falha de fato
+        if (st === 'disconnected') {
+          // 'disconnected' pode ser só um soluço — o ICE às vezes recupera
+          // sozinho e às vezes NÃO. Sem watchdog, a conexão ficava pendurada
+          // até alguém fechar por fora. Agora: reinício de ICE em escalada.
+          this.scheduleIceRestart(peerId)
+          return
+        }
+        if (st === 'failed') {
+          // falhou de vez: fecha e reconecta do zero em escalada (com teto)
+          this.closePeer(peerId)
+          this.schedulePeerReconnect(peerId)
+          return
+        }
         if (st === 'closed') {
           this.closePeer(peerId)
         }
@@ -857,6 +977,101 @@ export class VoiceManager {
       this.send({ type: 'offer', to: peerId, from: this.me!.id, offer: pc.localDescription as RTCSessionDescriptionInit })
     } catch {
       this.closePeer(peerId)
+      // oferta falhou (rede/DOM): programa reconexão em vez de desistir
+      this.schedulePeerReconnect(peerId)
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Recuperação de pares (watchdog de ICE + reconexão em escalada)
+  // ------------------------------------------------------------
+  /**
+   * Presença do par sumiu: aguarda PRESENCE_LEAVE_GRACE_MS antes de fechar.
+   * Reconexão do cliente remoto gera leave+join de presença — fechar na hora
+   * derrubava a voz de quem só estava religando a internet.
+   */
+  private schedulePeerClose(peerId: string): void {
+    if (!this.pcs.has(peerId)) return
+    this.retries.schedule(`peer-close:${peerId}`, PRESENCE_LEAVE_GRACE_MS, () => {
+      vdbg('par', peerId.slice(0, 8), 'presença não voltou — encerrando')
+      this.closePeer(peerId)
+      this.pcRetryAttempts.delete(peerId)
+    })
+  }
+
+  /** O par voltou (join/sinal dentro da tolerância): cancela o fecho agendado. */
+  private cancelPeerClose(peerId: string): void {
+    this.retries.cancel(`peer-close:${peerId}`)
+  }
+
+  /**
+   * Reconexão COMPLETA de um par que falhou ('failed'): nova oferta, novo PC,
+   * em escalada até o teto de 30 s — enquanto estiver no canal, tenta sempre.
+   */
+  private schedulePeerReconnect(peerId: string): void {
+    if (this.pcs.has(peerId)) return
+    const attempt = this.pcRetryAttempts.get(peerId) ?? 0
+    this.pcRetryAttempts.set(peerId, Math.min(attempt + 1, PC_RECONNECT_DELAYS_MS.length))
+    this.retries.schedule(`pc-reconnect:${peerId}`, delayFromSchedule(PC_RECONNECT_DELAYS_MS, attempt), () => {
+      if (!this.channelId || this.pcs.has(peerId)) return
+      vdbg('par', peerId.slice(0, 8), 'reconexão completa — tentativa', attempt + 1)
+      void this.connectTo(peerId)
+      // depois da primeira tentativa discreta, avisa uma vez que há algo errado
+      if (attempt > 0 && !this.failedNotified.has(peerId)) {
+        this.failedNotified.add(peerId)
+        const extra = navigator.userAgent.includes('Windows')
+          ? ' No Windows, permita o CallVortex no Firewall (Privado e Público).'
+          : ''
+        this.onError?.(
+          'Não foi possível conectar a um participante (rede bloqueada ou relay indisponível).' +
+            extra +
+            ' Chamadas entre redes diferentes precisam do relay: deixe o PC do criador ligado (coturn) ou configure VITE_TURN_URLS.'
+        )
+      }
+    })
+  }
+
+  /** 'disconnected' ⇒ watchdog de ICE restart em escalada (1s, 3s, 7s, 15s). */
+  private scheduleIceRestart(peerId: string): void {
+    if (!this.pcs.has(peerId)) return
+    if (this.retries.has(`ice-restart:${peerId}`)) return
+    const attempt = this.iceRestartAttempts.get(peerId) ?? 0
+    this.iceRestartAttempts.set(peerId, attempt + 1)
+    this.retries.schedule(`ice-restart:${peerId}`, delayFromSchedule(ICE_RESTART_DELAYS_MS, attempt), () => {
+      void this.restartIce(peerId)
+    })
+  }
+
+  /**
+   * Reinicia o ICE do par (createOffer com iceRestart): reutiliza as m-lines
+   * da conexão existente, sem renegociar trilhas. A resposta do par sai
+   * pelo fluxo normal de offer/answer — nada muda no protocolo dos sinais.
+   */
+  private async restartIce(peerId: string): Promise<void> {
+    const pc = this.pcs.get(peerId)
+    if (!pc || !this.me || pc.connectionState === 'closed') return
+    if ((this.iceRestartAttempts.get(peerId) ?? 0) > ICE_RESTART_DELAYS_MS.length) {
+      // tentávamos reiniciar e não voltou: reinicia a conexão completa
+      vdbg('par', peerId.slice(0, 8), 'ICE restart esgotado — reconexão completa')
+      this.closePeer(peerId)
+      this.schedulePeerReconnect(peerId)
+      return
+    }
+    if (pc.signalingState !== 'stable') {
+      // renegociação de tela/tela em curso: tenta mais 1s (não gasta agenda)
+      this.retries.schedule(`ice-restart:${peerId}`, 1_000, () => void this.restartIce(peerId))
+      return
+    }
+    try {
+      const offer = await pc.createOffer({ iceRestart: true })
+      await pc.setLocalDescription(offer)
+      vdbg('ice restart →', peerId.slice(0, 8))
+      this.send({ type: 'offer', to: peerId, from: this.me.id, offer: pc.localDescription as RTCSessionDescriptionInit })
+      // se voltar a conectar, o handler de 'connected' cancela a próxima
+      this.scheduleIceRestart(peerId)
+    } catch {
+      this.closePeer(peerId)
+      this.schedulePeerReconnect(peerId)
     }
   }
 
@@ -867,6 +1082,21 @@ export class VoiceManager {
       this.pcs.set(peerId, pc)
     }
     try {
+      //
+      // Glare: os dois lados enviaram oferta quase ao mesmo tempo (ex.: ambos
+      // religando). Antes isso lançava erro em setRemoteDescription e FECHAVA
+      // o par — agora o "polite side" (id maior) recua e aplica a oferta do
+      // outro; o lado rude mantém a sua.
+      //
+      if (pc.signalingState === 'have-local-offer' && this.me && pc.localDescription) {
+        const imPolite = this.me.id > peerId
+        if (imPolite) {
+          await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit)
+        } else {
+          vdbg('glare', peerId.slice(0, 8), '— oferta própria vence, ignoro a entrada')
+          return
+        }
+      }
       await pc.setRemoteDescription(offer)
       const answer = await pc.createAnswer()
       await pc.setLocalDescription(answer)
@@ -885,7 +1115,11 @@ export class VoiceManager {
         window.setTimeout(() => this.onScreenRenegotiationNeeded?.(peerId), 300)
       }
     } catch {
+      // erro de sinalização NÃO destrói mais a voz: fecha e tenta de novo
+      // (a reconexão completa recreia tudo em escalada)
+      vdbg('offer falhou de', peerId.slice(0, 8), '— reagendando reconexão')
       this.closePeer(peerId)
+      this.schedulePeerReconnect(peerId)
     }
   }
 
@@ -913,13 +1147,21 @@ export class VoiceManager {
   private async handleAnswer(peerId: string, answer: RTCSessionDescriptionInit): Promise<void> {
     const pc = this.pcs.get(peerId)
     if (!pc) return
+    if (pc.signalingState !== 'have-local-offer') {
+      // resposta fora de ordem (race/glare); não é fatal — apenas ignora e
+      // deixa o watchdog seguir vivo
+      vdbg('answer descartada de', peerId.slice(0, 8), 'estado:', pc.signalingState)
+      return
+    }
     try {
       await pc.setRemoteDescription(answer)
       const queued = this.pendingIce.get(peerId) ?? []
       this.pendingIce.delete(peerId)
       for (const c of queued) void pc.addIceCandidate(c).catch(() => undefined)
     } catch {
+      vdbg('answer falhou de', peerId.slice(0, 8), '— reagendando reconexão')
       this.closePeer(peerId)
+      this.schedulePeerReconnect(peerId)
     }
   }
 
@@ -1079,6 +1321,11 @@ export class VoiceManager {
       // corrida: oferta chegou antes do presence sync — cria o PC na hora
       pc = this.createPc(peerId)
       this.pcs.set(peerId, pc)
+    }
+    if (pc.signalingState === 'have-local-offer') {
+      // renegociação de tela cruzando com sinalização de áudio: quem recebe
+      // recua a própria oferta e responde a que chegou — evita travar em glare
+      await pc.setLocalDescription({ type: 'rollback' } as RTCSessionDescriptionInit)
     }
     await pc.setRemoteDescription(offer)
     const answer = await pc.createAnswer()

@@ -25,6 +25,8 @@ export interface Api {
     getSources: () => Promise<ScreenSourceInfo[]>
     /** registra a fonte escolhida no picker; o getDisplayMedia() usará ela */
     selectSource: (sourceId: string) => Promise<boolean>
+    /** true em Wayland: o picker é o do sistema (portal), não o interno */
+    isWayland: () => Promise<boolean>
   }
   voice: {
     /** libera o áudio no Firewall do Windows (abre confirmação UAC) */

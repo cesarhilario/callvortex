@@ -13,3 +13,4 @@ security-audit
 backup-*
 *.sql.gz
 profiles_rows.sql
+release-windows

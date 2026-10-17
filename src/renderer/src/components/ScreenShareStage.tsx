@@ -145,14 +145,19 @@ export default function ScreenShareStage({ members }: { members: VoicePeerInfo[]
         )}
       </header>
       <div className="ss-stage-body">
-        {stream && trackLive ? (
-          <video ref={videoRef} className="ss-video" autoPlay playsInline muted={mine} />
-        ) : (
-          !mine && (
-            <div className="ss-stage-placeholder">
-              {stream ? 'Compartilhamento encerrado por quem compartilhava.' : 'Aguardando o vídeo…'}
-            </div>
-          )
+        {stream && (
+          <video
+            ref={videoRef}
+            className={`ss-video${trackLive ? '' : ' ss-video-idle'}`}
+            autoPlay
+            playsInline
+            muted={mine}
+          />
+        )}
+        {!trackLive && !mine && (
+          <div className="ss-stage-placeholder">
+            {stream ? 'Compartilhamento encerrado por quem compartilhava.' : 'Aguardando o vídeo…'}
+          </div>
         )}
         {mine && stream && <div className="ss-preview-tag">Prévia local</div>}
         {/* parar sempre visível sobre o vídeo — sem precisar procurar */}

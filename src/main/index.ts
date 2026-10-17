@@ -94,6 +94,17 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // Captura de tela em Wayland via portal/PipeWire (sem efeito no X11/Windows)
 app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer')
 
+/**
+ * Sessão Wayland: o xdg-desktop-portal é o ÚNICO picker de tela. Chamar
+ * `desktopCapturer.getSources()` já abre o diálogo do portal, e devolver a
+ * fonte enumerada no handler abre um SEGUNDO diálogo (sessões PipeWire são
+ * isoladas e o id enumerado é inválido para captura). Por isso, no Wayland
+ * pulamos a listagem e entregamos uma fonte sintética — o Chromium abre o
+ * portal exatamente uma vez, na hora de capturar.
+ */
+const IS_WAYLAND =
+  process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || Boolean(process.env.WAYLAND_DISPLAY))
+
 // TEMPORÁRIO (diagnóstico de voz): expõe o CDP quando CV_REMOTE_DEBUG_PORT=9222
 if (process.env.CV_REMOTE_DEBUG_PORT) {
   app.commandLine.appendSwitch('remote-debugging-port', process.env.CV_REMOTE_DEBUG_PORT)
@@ -182,8 +193,26 @@ interface ScreenSourceInfo {
 
 /** Fonte escolhida no picker aguardando o getDisplayMedia() do renderer. */
 let pendingScreenSourceId: string | null = null
+/** Instante em que a fonte foi escolhida — descarta escolhas antigas. */
+let pendingScreenSourceAt = 0
+/** Uma escolha vale por este tempo; reemissões do Chromium são imediatas. */
+const PENDING_SOURCE_TTL_MS = 30_000
+
+/**
+ * Fontes exatas devolvidas pela última listagem do picker, indexadas por id.
+ * No Wayland cada `getSources()` abre o diálogo do portal; reaproveitar o
+ * objeto já listado no handler do getDisplayMedia evita um SEGUNDO diálogo
+ * e o descasamento de ids (que resultava em NotAllowedError).
+ */
+const lastScreenSources = new Map<string, Electron.DesktopCapturerSource>()
 
 function registerScreenShareIpc(): void {
+  // Informa o renderer se a sessão é Wayland (a UI pula o picker interno).
+  ipcMain.handle('screen-share:is-wayland', (e): boolean => {
+    if (!isTrustedSender(e)) return false
+    return IS_WAYLAND
+  })
+
   ipcMain.handle('screen-share:get-sources', async (e): Promise<ScreenSourceInfo[]> => {
     if (!isTrustedSender(e)) return []
     try {
@@ -193,7 +222,11 @@ function registerScreenShareIpc(): void {
         fetchWindowIcons: true
       })
       if (!app.isPackaged) console.log('[main] get-sources:', sources.length, 'fontes')
-      return sources.slice(0, 50).map((s) => ({
+      const visible = sources.slice(0, 50)
+      // guarda os objetos nativos da fonte para o handler reutilizar
+      lastScreenSources.clear()
+      for (const s of visible) lastScreenSources.set(s.id, s)
+      return visible.map((s) => ({
         id: s.id,
         name: s.name.trim() || (s.id.startsWith('screen:') ? 'Tela inteira' : 'Janela'),
         thumbnail: s.thumbnail.isEmpty() ? null : s.thumbnail.toDataURL(),
@@ -210,6 +243,7 @@ function registerScreenShareIpc(): void {
     if (!isTrustedSender(e)) return false
     if (typeof sourceId !== 'string' || sourceId.length === 0 || sourceId.length > 256) return false
     pendingScreenSourceId = sourceId
+    pendingScreenSourceAt = Date.now()
     return true
   })
 
@@ -231,11 +265,32 @@ function registerScreenShareIpc(): void {
         // callback já consumido por uma reemissão anterior — ignora
       }
     }
+    // Wayland: não enumera (isso abriria o portal) nem reusa uma fonte.
+    // Entrega um id sintético; o Chromium/PipeWire abre o portal UMA vez,
+    // no início da captura, e o usuário escolhe a tela/janela ali.
+    if (IS_WAYLAND) {
+      answer({ video: { id: 'screen:0:0', name: 'Screen' } as Electron.DesktopCapturerSource })
+      return
+    }
+
     const wanted = pendingScreenSourceId
-    if (!wanted) {
+    const fresh = wanted !== null && Date.now() - pendingScreenSourceAt < PENDING_SOURCE_TTL_MS
+    if (!fresh) {
       answer({})
       return
     }
+    // Reaproveita o objeto listado no picker — sem novo getSources(), que no
+    // Wayland dispararia outro diálogo do portal e poderia trazer ids
+    // diferentes do escolhido (→ NotAllowedError).
+    const cached = lastScreenSources.get(wanted)
+    if (cached) {
+      answer({ video: cached })
+      return
+    }
+    // NÃO limpa a fonte: o Chromium pode reemitir a MESMA requisição (comum
+    // em Wayland/PipeWire) como nova invocação deste handler; limpá-la levaria
+    // a segunda tentativa a answer({}) → NotAllowedError. A escolha é
+    // substituída no próximo select-source e expira pelo TTL.
     void desktopCapturer
       .getSources({ types: ['screen', 'window'] })
       .then((sources) => {
@@ -244,9 +299,6 @@ function registerScreenShareIpc(): void {
         else answer({})
       })
       .catch(() => answer({}))
-      .finally(() => {
-        if (pendingScreenSourceId === wanted) pendingScreenSourceId = null
-      })
   })
 }
 

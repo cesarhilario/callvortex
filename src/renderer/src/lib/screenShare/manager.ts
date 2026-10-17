@@ -14,7 +14,7 @@
  */
 import { getSupabase } from '../supabase'
 import type { VoiceManager } from '../voice'
-import { captureScreenSource } from './capture'
+import { captureScreenSource, SCREEN_SHARE_CANCELLED } from './capture'
 import { ScreenShareSignaling, type ScreenSignal } from './signaling'
 import { INITIAL_SCREEN_SHARE_STATE, type ScreenShareState } from './types'
 
@@ -45,6 +45,7 @@ export class ScreenShareManager {
   private endedHandler: (() => void) | null = null
   /** guarda o clique: se 'starting' não evoluir, reseta com aviso */
   private startGuard: number | null = null
+  private heartbeatRetry: number | null = null
   private destroyed = false
   /**
    * Vídeo que chegou antes da confirmação oficial de quem compartilha
@@ -61,6 +62,7 @@ export class ScreenShareManager {
   attach(voice: VoiceManager): void {
     this.voice = voice
     voice.onRemoteScreen = (peerId, stream) => {
+      dbg('trilha remota', peerId.slice(0, 8), stream ? 'recebida' : 'encerrada')
       if (this.state.status === 'sharing' && this.state.localStream) return // sou eu quem compartilha
       if (stream === null) {
         const wasSharer = this.state.sharerId === peerId
@@ -280,7 +282,9 @@ export class ScreenShareManager {
       if (token !== this.opToken) return
       this.resetToIdle()
       await releaseReservation(channelId)
-      this.fail(e instanceof Error ? e.message : 'Não foi possível capturar a tela.')
+      const message = e instanceof Error ? e.message : 'Não foi possível capturar a tela.'
+      // usuário fechou o seletor de tela do sistema (Wayland): não é erro
+      if (message !== SCREEN_SHARE_CANCELLED) this.fail(message)
       return
     }
     if (token !== this.opToken) {
@@ -297,6 +301,7 @@ export class ScreenShareManager {
     // publica a trilha nos PeerConnections e renegocia com cada par existente
     try {
       for (const offer of await voice.publishScreenTrack(stream)) {
+        dbg('enviando screen-offer para', offer.peerId.slice(0, 8))
         await this.signaling.sendSignal(channelId, offer.peerId, 'screen-offer', { sdp: offer.sdp })
       }
     } catch (e) {
@@ -367,6 +372,7 @@ export class ScreenShareManager {
   private async handleSignal(signal: ScreenSignal): Promise<void> {
     const voice = this.voice
     if (!voice || !signal.senderId || !this.channelId) return
+    dbg('sinal recebido', signal.kind, 'de', signal.senderId.slice(0, 8), 'sharerId=', this.state.sharerId?.slice(0, 8))
     switch (signal.kind) {
       case 'screen-offer': {
         const sdp = signal.payload.sdp
@@ -404,14 +410,41 @@ export class ScreenShareManager {
       if (this.destroyed) return
       void getSupabase()
         .rpc('touch_screen_share', { target_channel: channelId })
-        .then(() => undefined, () => undefined)
+        .then(
+          (res: { error?: unknown }) => {
+            if (res.error) this.retryHeartbeat(channelId)
+          },
+          () => this.retryHeartbeat(channelId)
+        )
     }, HEARTBEAT_MS)
+  }
+
+  /**
+   * Um heartbeat perdido (rede oscilando) não pode matar a reserva que tem
+   * janela de 90 s: uma retentativa curta busca renovar antes do prazo —
+   * se falhar de novo, as tentativas seguintes do intervalo normal cuidam.
+   */
+  private retryHeartbeat(channelId: string): void {
+    if (this.destroyed) return
+    if (this.heartbeatRetry !== null) return
+    dbg('heartbeat falhou — retentativa em 5s')
+    this.heartbeatRetry = window.setTimeout(() => {
+      this.heartbeatRetry = null
+      if (this.destroyed || this.state.status !== 'sharing') return
+      void getSupabase()
+        .rpc('touch_screen_share', { target_channel: channelId })
+        .then(() => undefined, () => undefined)
+    }, 5_000)
   }
 
   private stopHeartbeat(): void {
     if (this.heartbeat !== null) {
       clearInterval(this.heartbeat)
       this.heartbeat = null
+    }
+    if (this.heartbeatRetry !== null) {
+      clearTimeout(this.heartbeatRetry)
+      this.heartbeatRetry = null
     }
   }
 
