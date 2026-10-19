@@ -83,8 +83,14 @@ end $$;
 SQL
 fi
 
-"${PSQL[@]}" -f "$SCHEMA" > "$LOG_SCHEMA" 2>&1 || {
-  echo "✗ Falha ao aplicar o schema (veja $LOG_SCHEMA)"; exit 1; }
+if [ -z "${1:-}" ]; then
+  "${PSQL[@]}" -f "$SCHEMA" > "$LOG_SCHEMA" 2>&1 || {
+    echo "✗ Falha ao aplicar o schema (veja $LOG_SCHEMA)"; exit 1; }
+else
+  # Modo remoto: NÃO reaplica o schema.sql — o banco hospedado já tem o schema
+  # real (migrations), e reaplicar o arquivo antigo sobrescreveria políticas.
+  echo "→ Modo REMOTO: schema já existe no banco, aplicando só a suíte…"
+fi
 
 echo "→ Rodando a suíte RLS ($SUITE)…"
 if "${PSQL[@]}" -f "$SUITE" > "$LOG_SUITE" 2>&1; then
