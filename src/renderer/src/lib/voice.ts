@@ -1,6 +1,7 @@
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabase } from './supabase'
 import { ScreenAudioMixer } from './screenShare/audio'
+import { SCREEN_AUDIO_ENABLED_KEY, readRaw, writeRaw } from './settings'
 import type { Profile, VoicePeerInfo } from './types'
 import {
   ICE_RESTART_DELAYS_MS,
@@ -27,6 +28,12 @@ interface SignalMsg {
 export interface PeerOffer {
   peerId: string
   sdp: RTCSessionDescriptionInit
+}
+
+/** Preferência salva do toggle "áudio do desktop" (padrão: ligado). */
+function readScreenAudioPreferred(): boolean {
+  const v = readRaw(SCREEN_AUDIO_ENABLED_KEY)
+  return v === null ? true : v === '1'
 }
 
 // URL do módulo do supressor de ruído (AudioWorklet) — cache compartilhado
@@ -312,7 +319,8 @@ export class VoiceManager {
   // ------------------------------------------------------------
   private screenMix: ScreenAudioMixer | null = null
   private screenAudioTrack: MediaStreamTrack | null = null
-  private screenDesktopAudioEnabled = true
+  /** preferência do usuário persistida (o toggle do palco sobrevive às chamadas) */
+  private screenDesktopAudioEnabled = readScreenAudioPreferred()
   // saída: dispositivo (setSinkId) e volume geral aplicado ao áudio recebido
   private outputDeviceId: string | null = null
   private outputVolume = 1
@@ -723,7 +731,8 @@ export class VoiceManager {
     this.localStream = null
     // encerra qualquer sessão de tela pendente da chamada que estou deixando
     this.screenStream = null
-    this.screenDesktopAudioEnabled = true
+    // volta à preferência persistida do usuário (não força "ligado" de novo)
+    this.screenDesktopAudioEnabled = readScreenAudioPreferred()
     this.me = null
     this.localMuted = false
     this.deafened = false
@@ -1415,10 +1424,12 @@ export class VoiceManager {
 
   /**
    * Liga/desliga o áudio do sistema DURANTE o compartilhamento. Só mexe no
-   * ganho da mixagem: a conexão WebRTC não é tocada.
+   * ganho da mixagem: a conexão WebRTC não é tocada e o microfone segue
+   * funcionando normalmente (cadeia própria, independente do desktop).
    */
   setScreenDesktopAudio(enabled: boolean): void {
     this.screenDesktopAudioEnabled = enabled
+    writeRaw(SCREEN_AUDIO_ENABLED_KEY, enabled ? '1' : '0')
     this.screenMix?.setDesktopActive(enabled)
     this.onScreenAudioStateChange?.(this.screenMix !== null, enabled)
   }

@@ -138,16 +138,19 @@ export default function ScreenShareStage({ members }: { members: VoicePeerInfo[]
             <button
               className={`ss-audio-btn ${systemAudioEnabled ? 'on' : 'off'}`}
               aria-pressed={systemAudioEnabled}
+              disabled={!systemAudioAvailable}
               title={
-                systemAudioEnabled
-                  ? 'Áudio da tela: Ativo — clique para silenciar'
-                  : 'Áudio da tela: Mutado — clique para ativar'
+                !systemAudioAvailable
+                  ? 'Áudio da tela indisponível nesta plataforma (a captura só traz vídeo). O microfone continua funcionando normalmente.'
+                  : systemAudioEnabled
+                    ? 'Áudio da tela: Ativo — clique para transmitir apenas o vídeo (o microfone não é afetado)'
+                    : 'Áudio da tela: Mutado — clique para ativar (o microfone não é afetado)'
               }
               onClick={() => setSystemAudioEnabled(!systemAudioEnabled)}
             >
               {systemAudioEnabled ? <VolumeHighIcon size={16} /> : <VolumeMuteIcon size={16} />}
               <span className="ss-audio-name">Áudio da tela:</span>
-              <span className="ss-audio-state">{systemAudioEnabled ? 'Ativo' : 'Muted'}</span>
+              <span className="ss-audio-state">{!systemAudioAvailable ? 'Indisponível' : systemAudioEnabled ? 'Ativo' : 'Muted'}</span>
             </button>
           </div>
         )}

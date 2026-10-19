@@ -13,6 +13,8 @@ export const OUTPUT_DEVICE_KEY = 'output-device-id'
 export const OUTPUT_VOLUME_KEY = 'output-volume'
 export const PEER_VOLUMES_KEY = 'peer-volumes'
 export const MIC_VOLUME_KEY = 'mic-volume'
+/** preferência de transmitir (ou não) o áudio do sistema no compartilhamento */
+export const SCREEN_AUDIO_ENABLED_KEY = 'screen-audio-enabled'
 
 // sessão de voz é considerada reutilizável por até 20 minutos
 export const VOICE_REJOIN_MS = 20 * 60 * 1000
