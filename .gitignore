@@ -10,7 +10,8 @@ docs
 security-audit
 
 # dumps de backup (nunca commitar — contêm dados pessoais)
-backup-*
+callvortex-*.sql
+callvortex-*.sql.gz
 *.sql.gz
 profiles_rows.sql
 release-windows

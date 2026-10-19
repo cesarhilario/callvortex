@@ -354,7 +354,7 @@ export default function ChatArea(): React.JSX.Element {
                       <button
                         key={s.id}
                         className="sticker-btn"
-                        title={`{{${s.name}}}${s.server_id ? ' · figurinha do servidor' : ' · mine'}`}
+                        title={`{{${s.name}}}${s.server_id ? ' · figurinha do servidor' : ' · minhas'}`}
                         onClick={() => {
                           setInput((v) => v + `{{${s.name}}}`)
                           inputRef.current?.focus()
@@ -380,7 +380,6 @@ export default function ChatArea(): React.JSX.Element {
                   </div>
                 )}
               </>
-            )}
           </div>
         )}
         <div className="chat-input-box">

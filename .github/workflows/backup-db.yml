@@ -1,0 +1,47 @@
+name: Backup do banco (diário)
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # todos os dias às 03:00 UTC
+  workflow_dispatch:      # permite rodar manualmente pela aba Actions (use antes de mudanças)
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar cliente Postgres
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Gerar dump (schema + dados)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "::notice::Secret DATABASE_URL não configurada neste repositório — backup pulado."
+            echo "::notice::Configure em Settings > Secrets and variables > Actions para ativar."
+            exit 0
+          fi
+          STAMP="$(date +%Y-%m-%d)"
+          pg_dump "$DATABASE_URL" \
+            --schema=public --schema=auth \
+            --no-owner --no-privileges \
+            --file="callvortex-${STAMP}.sql"
+          gzip "callvortex-${STAMP}.sql"
+
+      - name: Enviar para o repositório privado de backups
+        env:
+          BACKUP_PAT: ${{ secrets.BACKUP_PAT }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${BACKUP_PAT}@github.com/guilhermehilario/callmecord-backups.git" backups
+          cp callvortex-*.sql.gz backups/
+          cd backups
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "backup $(date +%Y-%m-%d)" || echo "sem mudanças"
+          git push
