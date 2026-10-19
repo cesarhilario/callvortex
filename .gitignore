@@ -15,3 +15,5 @@ callvortex-*.sql.gz
 *.sql.gz
 profiles_rows.sql
 release-windows
+release.zip
+release-*.zip
