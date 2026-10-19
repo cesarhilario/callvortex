@@ -4,6 +4,7 @@ import { getSupabase } from '../lib/supabase'
 import { deleteDmMessage, deleteMessage, fetchDmMessages, fetchMessages } from '../lib/api'
 import type { Profile, ServerEmoji, Sticker } from '../lib/types'
 import { useApp } from '../lib/useApp'
+import { DEFAULT_STICKERS } from '../lib/defaultStickers'
 import Avatar from './Avatar'
 import VoiceChannelScreen from './VoiceChannelScreen'
 
@@ -39,8 +40,11 @@ function renderContent(content: string, emojis: ServerEmoji[], stickers: Sticker
     }
     const sm = part.match(/^\{\{([\w+-]+)\}\}$/)
     if (sm) {
-      // figurinha do servidor tem prioridade sobre a pessoal com mesmo nome
-      const sticker = stickers.find((s) => s.server_id !== null && s.name === sm[1]) ?? stickers.find((s) => s.owner_user_id !== null && s.name === sm[1])
+      // prioridade: servidor > pessoal > padrão (embutida no app)
+      const sticker =
+        stickers.find((s) => s.server_id !== null && s.name === sm[1]) ??
+        stickers.find((s) => s.owner_user_id !== null && s.name === sm[1]) ??
+        DEFAULT_STICKERS.find((s) => s.name === sm[1])
       if (sticker) {
         return <img key={i} className="inline-sticker" src={sticker.url} alt={part} title={part} />
       }
@@ -366,7 +370,7 @@ export default function ChatArea(): React.JSX.Element {
                   </div>
                 ) : (
                   <div className="sticker-empty">
-                    Nenhuma figurinha ainda.
+                    Nenhuma figurinha personalizada ainda.
                     <button className="sticker-manage-link" onClick={() => openModal('manage-stickers')}>
                       + Adicionar figurinhas/GIFs
                     </button>
@@ -379,6 +383,22 @@ export default function ChatArea(): React.JSX.Element {
                     </button>
                   </div>
                 )}
+                <div className="emoji-panel-section sticker">Figurinhas padrão</div>
+                <div className="sticker-grid">
+                  {DEFAULT_STICKERS.map((s) => (
+                    <button
+                      key={s.name}
+                      className="sticker-btn"
+                      title={`{{${s.name}}}`}
+                      onClick={() => {
+                        setInput((v) => v + `{{${s.name}}}`)
+                        inputRef.current?.focus()
+                      }}
+                    >
+                      <img className="sticker-img-btn" src={s.url} alt={`{{${s.name}}}`} loading="lazy" />
+                    </button>
+                  ))}
+                </div>
               </>
           </div>
         )}
