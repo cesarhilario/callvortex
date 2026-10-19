@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../lib/useApp'
 import { getOrCreateDmThread, searchUsers, fetchMembers } from '../lib/api'
-import type { Profile } from '../lib/types'
+import type { Profile, Sticker } from '../lib/types'
 import Avatar from './Avatar'
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }): React.JSX.Element {
@@ -437,6 +437,141 @@ function VoiceInviteModal({ onClose }: { onClose: () => void }): React.JSX.Eleme
   )
 }
 
+/**
+ * Painel de figurinhas (stickers) e GIFs personalizados.
+ *  - Pessoal: qualquer usuário adiciona/remove as DELE (bucket user/<id>).
+ *  - Servidor: dono adiciona/remove; visível para membros (bucket server/<id>).
+ */
+function ManageStickersModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const { profile, servers, screen, stickers, addSticker, removeSticker, openModal } = useApp()
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const activeServerId = screen?.type === 'server' ? screen.serverId : null
+  const activeServer = servers.find((s) => s.id === activeServerId)
+  const isOwner = !!activeServer && activeServer.owner_id === profile?.id
+  // escopo do próximo envio: servidor (dono) ou pessoal
+  const [scope, setScope] = useState<'user' | 'server'>('user')
+  const selectedScope: 'user' | 'server' = scope === 'server' && isOwner && activeServerId ? 'server' : 'user'
+
+  const pickFile = (): void => {
+    const stickerName = name.trim() || undefined
+    if (stickerName !== undefined && !/^[\w+-]+$/.test(stickerName)) {
+      setError('Nome inválido: use apenas letras, números, _ ou - (ex: risada).')
+      return
+    }
+    setError(null)
+    fileRef.current?.click()
+  }
+
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setError('O arquivo precisa ser uma imagem (png, jpg, webp ou gif).')
+      return
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setError('Figurinha muito grande (máximo 2 MB).')
+      return
+    }
+    const stickerName =
+      name.trim().toLowerCase().replace(/\s+/g, '-') ||
+      file.name.split('.')[0].toLowerCase().replace(/[^\w+-]/g, '').slice(0, 32) ||
+      'figurinha'
+    if (!/^[\w+-]+$/.test(stickerName)) {
+      setError('Nome inválido: use apenas letras, números, _ ou - (ex: risada).')
+      return
+    }
+    setBusy(true)
+    const ok = await addSticker(stickerName, file, selectedScope === 'server' && activeServerId ? activeServerId : 'user')
+    setBusy(false)
+    if (ok) {
+      setName('')
+      setError(null)
+    }
+  }
+
+  const mine = stickers.filter((s) => s.owner_user_id !== null)
+  const serverStickers = stickers.filter((s) => s.server_id !== null)
+
+  const stickerRow = (s: Sticker, canDelete: boolean): React.JSX.Element => (
+    <div key={s.id} className="emoji-list-item">
+      <img className="sticker-list-img" src={s.url} alt={`{{${s.name}}}`} />
+      <span className="emoji-list-name">{'{{'} {s.name} {'}}'}</span>
+      {canDelete && (
+        <button className="emoji-list-delete" title="Excluir figurinha" onClick={() => void removeSticker(s.id)}>
+          ✕
+        </button>
+      )}
+    </div>
+  )
+
+  return (
+    <ModalShell title="Figurinhas e GIFs" onClose={onClose}>
+      <div className="modal-form">
+        <p className="modal-hint">
+          Envie uma imagem ou GIF (até 2 MB). Ela vira a figurinha <code>{'{{nome}}'}</code>, que você insere no chat pelo
+          painel 🙃 do campo de mensagem.
+        </p>
+        {(
+          <div className="sticker-scope-picker">
+            <button
+              type="button"
+              className={`channel-type-option ${selectedScope === 'user' ? 'active' : ''}`}
+              onClick={() => setScope('user')}
+            >
+              <span className="channel-type-icon">🙋</span>
+              <span className="channel-type-label">Minhas (pessoal)</span>
+            </button>
+            {isOwner && activeServerId && (
+              <button
+                type="button"
+                className={`channel-type-option ${selectedScope === 'server' ? 'active' : ''}`}
+                onClick={() => setScope('server')}
+              >
+                <span className="channel-type-icon">🏰</span>
+                <span className="channel-type-label">Servidor</span>
+              </button>
+            )}
+          </div>
+        )}
+        <div className="emoji-add-row">
+          <input
+            className="modal-input"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="nome (ex: risada)"
+            maxLength={24}
+          />
+          <button className="btn-primary" onClick={pickFile} disabled={busy}>
+            {busy ? 'Enviando…' : 'Enviar'}
+          </button>
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" hidden onChange={(e) => void onFile(e)} />
+        {error && <div className="modal-error">{error}</div>}
+        <div className="emoji-list">
+          {mine.length > 0 && <div className="invite-contact-section">Minhas figurinhas</div>}
+          {mine.map((s) => stickerRow(s, true))}
+          {serverStickers.length > 0 && (
+            <div className="invite-contact-section">Figurinhas do servidor{isOwner ? '' : ' (gerencia o dono)'}</div>
+          )}
+          {serverStickers.map((s) => stickerRow(s, isOwner))}
+          {stickers.length === 0 && <div className="modal-hint">Nenhuma figurinha ainda. Envie a primeira acima!</div>}
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Fechar
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
 export default function Modals(): React.JSX.Element | null {
   const { modal, closeModal } = useApp()
   if (!modal) return null
@@ -453,6 +588,8 @@ export default function Modals(): React.JSX.Element | null {
       return <StartDmModal onClose={closeModal} />
     case 'manage-emojis':
       return <ManageEmojisModal onClose={closeModal} />
+    case 'manage-stickers':
+      return <ManageStickersModal onClose={closeModal} />
     case 'voice-invite':
       return <VoiceInviteModal onClose={closeModal} />
     default:

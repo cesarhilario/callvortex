@@ -14,6 +14,16 @@ export interface ServerEmoji {
   created_at?: string
 }
 
+/** Figurinha (sticker) ou GIF — de servidor (server_id) ou pessoal (owner_user_id). */
+export interface Sticker {
+  id: string
+  server_id: string | null
+  owner_user_id: string | null
+  name: string
+  url: string
+  created_at?: string
+}
+
 export interface Server {
   id: string
   name: string
@@ -85,7 +95,7 @@ export interface VoiceInvite {
   invitedAt: number
 }
 
-export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | 'voice-invite' | null
+export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | 'manage-stickers' | 'voice-invite' | null
 
 export const AVATAR_COLORS = [
   '#5865f2',

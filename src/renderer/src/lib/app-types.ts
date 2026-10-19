@@ -1,4 +1,4 @@
-import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, VoiceInvite, VoicePeerInfo } from './types'
+import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, Sticker, VoiceInvite, VoicePeerInfo } from './types'
 import type { ScreenShareApi } from './useScreenShare'
 
 export type AuthState = 'loading' | 'signedOut' | 'signedIn'
@@ -49,6 +49,15 @@ export interface AppContextValue {
   serverEmojis: ServerEmoji[]
   addEmoji: (name: string, file: File) => Promise<boolean>
   removeEmoji: (emojiId: string) => Promise<void>
+  // ------------------------------------------------------------
+  // Figurinhas (stickers) e GIFs (Etapa 4)
+  // ------------------------------------------------------------
+  /** figurinhas disponíveis: pessoais minhas + as do servidor ativo */
+  stickers: Sticker[]
+  /** envia a figurinha: scope 'user' (pessoal) ou id do servidor */
+  addSticker: (name: string, file: File, scope: 'user' | string) => Promise<boolean>
+  /** exclui a figurinha (pessoal: só o dono; de servidor: só o dono do servidor) */
+  removeSticker: (stickerId: string) => Promise<void>
   updateAvatarUrl: (url: string) => void
   voiceChannelId: string | null
   voiceRoster: VoicePeerInfo[]

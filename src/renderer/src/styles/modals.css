@@ -154,3 +154,18 @@
   color: var(--red);
   background: var(--bg-modifier-active);
 }
+
+/* ---------------------------------------------------------- */
+/* Painel de figurinhas (stickers) e GIFs                      */
+/* ---------------------------------------------------------- */
+.sticker-scope-picker {
+  display: flex;
+  gap: 8px;
+}
+.sticker-list-img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: var(--bg-modifier-hover);
+}

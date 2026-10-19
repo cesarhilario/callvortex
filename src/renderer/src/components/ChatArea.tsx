@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 import { getSupabase } from '../lib/supabase'
 import { deleteDmMessage, deleteMessage, fetchDmMessages, fetchMessages } from '../lib/api'
-import type { Profile, ServerEmoji } from '../lib/types'
+import type { Profile, ServerEmoji, Sticker } from '../lib/types'
 import { useApp } from '../lib/useApp'
 import Avatar from './Avatar'
 import VoiceChannelScreen from './VoiceChannelScreen'
@@ -27,14 +27,22 @@ function formatTime(iso: string): string {
   return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso))
 }
 
-function renderContent(content: string, emojis: ServerEmoji[]): React.ReactNode[] {
-  const parts = content.split(/(:[\w+-]+:)/g)
+function renderContent(content: string, emojis: ServerEmoji[], stickers: Sticker[]): React.ReactNode[] {
+  const parts = content.split(/(:[\w+-]+:|\{\{[\w+-]+\}\})/g)
   return parts.map((part, i) => {
     const m = part.match(/^:([\w+-]+):$/)
     if (m) {
       const emoji = emojis.find((e) => e.name === m[1])
       if (emoji) {
         return <img key={i} className="inline-emoji" src={emoji.url} alt={part} title={part} />
+      }
+    }
+    const sm = part.match(/^\{\{([\w+-]+)\}\}$/)
+    if (sm) {
+      // figurinha do servidor tem prioridade sobre a pessoal com mesmo nome
+      const sticker = stickers.find((s) => s.server_id !== null && s.name === sm[1]) ?? stickers.find((s) => s.owner_user_id !== null && s.name === sm[1])
+      if (sticker) {
+        return <img key={i} className="inline-sticker" src={sticker.url} alt={part} title={part} />
       }
     }
     return <span key={i}>{part}</span>
@@ -52,7 +60,7 @@ function dayLabel(iso: string): string {
 }
 
 export default function ChatArea(): React.JSX.Element {
-  const { screen, channels, dms, profile, onlineUsers, sendChannelMessage, sendDmMessage, serverEmojis } = useApp()
+  const { screen, channels, dms, profile, onlineUsers, sendChannelMessage, sendDmMessage, serverEmojis, stickers, openModal } = useApp()
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [emojiOpen, setEmojiOpen] = useState(false)
@@ -291,7 +299,7 @@ export default function ChatArea(): React.JSX.Element {
                     <span className="message-time">{formatTime(m.created_at)}</span>
                   </div>
                 )}
-                <div className="message-content">{renderContent(m.content, serverEmojis)}</div>
+                <div className="message-content">{renderContent(m.content, serverEmojis, stickers)}</div>
               </div>
               {isMine && (
                 <button className="message-delete" title="Excluir mensagem" onClick={() => removeMessage(m)}>
@@ -337,6 +345,42 @@ export default function ChatArea(): React.JSX.Element {
                 {e}
               </button>
             ))}
+            {/* figurinhas e GIFs (Etapa 4): insere {{nome}} decorado pelo chat */}
+            <>
+                <div className="emoji-panel-section sticker">Figurinhas e GIFs</div>
+                {stickers.length > 0 ? (
+                  <div className="sticker-grid">
+                    {stickers.map((s) => (
+                      <button
+                        key={s.id}
+                        className="sticker-btn"
+                        title={`{{${s.name}}}${s.server_id ? ' · figurinha do servidor' : ' · mine'}`}
+                        onClick={() => {
+                          setInput((v) => v + `{{${s.name}}}`)
+                          inputRef.current?.focus()
+                        }}
+                      >
+                        <img className="sticker-img-btn" src={s.url} alt={`{{${s.name}}}`} loading="lazy" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="sticker-empty">
+                    Nenhuma figurinha ainda.
+                    <button className="sticker-manage-link" onClick={() => openModal('manage-stickers')}>
+                      + Adicionar figurinhas/GIFs
+                    </button>
+                  </div>
+                )}
+                {stickers.length > 0 && (
+                  <div className="sticker-empty">
+                    <button className="sticker-manage-link" onClick={() => openModal('manage-stickers')}>
+                      + Gerenciar figurinhas/GIFs
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
         <div className="chat-input-box">

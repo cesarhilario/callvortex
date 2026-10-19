@@ -18,7 +18,7 @@ import { playMessageSound } from './sounds'
 import { subscribeVoiceInvites, sendVoiceInvite } from './invites'
 import { writeVoiceSession } from './settings'
 import type { AppContextValue, AuthState, Notice, SavedCredentials } from './app-types'
-import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, VoiceInvite, VoicePeerInfo } from './types'
+import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, Sticker, VoiceInvite, VoicePeerInfo } from './types'
 
 export type { Notice, SavedCredentials } from './app-types'
 
@@ -40,6 +40,8 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   const [channels, setChannels] = useState<Channel[]>([])
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
   const [serverEmojis, setServerEmojis] = useState<ServerEmoji[]>([])
+  // figurinhas (stickers) disponíveis: pessoais minhas + do servidor ativo
+  const [stickers, setStickers] = useState<Sticker[]>([])
   const [screen, setScreen] = useState<Screen | null>(null)
   const [modal, setModal] = useState<ModalType>(null)
   const [renamingChannel, setRenamingChannel] = useState<Channel | null>(null)
@@ -230,6 +232,38 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   // Canais de todos os servidores (mapa channel_id -> server_id):
   // recarrega quando a lista de servidores muda (criou/entrou/excluiu)
   // ------------------------------------------------------------
+  // ------------------------------------------------------------
+  // Figurinhas: minhas pessoais + as do servidor ativo (Etapa 4)
+  // Recarrega ao trocar de tela/servidor e reage a INSERT/DELETE na
+  // tabela `stickers` via Realtime (gestor adiciona sem reiniciar o app).
+  // ------------------------------------------------------------
+  const stickerServerId = screen?.type === 'server' ? screen.serverId : null
+  useEffect(() => {
+    if (authState !== 'signedIn') {
+      setStickers([])
+      return
+    }
+    let cancelled = false
+    const reload = (): void => {
+      void api
+        .fetchStickers(stickerServerId)
+        .then((s) => {
+          if (!cancelled) setStickers(s)
+        })
+        .catch(() => undefined)
+    }
+    reload()
+    const supabase = getSupabase()
+    const ch = supabase.channel('stickers-live')
+    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'stickers' }, () => reload())
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'stickers' }, () => reload())
+    void ch.subscribe()
+    return () => {
+      cancelled = true
+      void supabase.removeChannel(ch)
+    }
+  }, [authState, stickerServerId])
+
   const serverIds = useMemo(() => servers.map((s) => s.id).join(','), [servers])
   useEffect(() => {
     if (authState !== 'signedIn') {
@@ -626,6 +660,34 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     setProfile((prev) => (prev ? { ...prev, avatar_url: url } : prev))
   }, [])
 
+  const addSticker = useCallback(
+    async (name: string, file: File, scope: 'user' | string): Promise<boolean> => {
+      try {
+        await api.addSticker(scope, name, file)
+        // a assinatura Realtime recarrega a lista; aqui apenas informamos
+        notify('success', `Figurinha {{${name.toLowerCase()}}} adicionada!`)
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Erro ao adicionar figurinha')
+        return false
+      }
+    },
+    [notify]
+  )
+
+  const removeSticker = useCallback(
+    async (stickerId: string) => {
+      try {
+        await api.removeSticker(stickerId)
+        setStickers((prev) => prev.filter((s) => s.id !== stickerId))
+        notify('success', 'Figurinha excluída.')
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Erro ao excluir figurinha')
+      }
+    },
+    [notify]
+  )
+
   // ------------------------------------------------------------
   // Sinal de internet: mede o ping até o servidor do app a cada 5s
   // ------------------------------------------------------------
@@ -713,6 +775,9 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       serverEmojis,
       addEmoji,
       removeEmoji,
+      stickers,
+      addSticker,
+      removeSticker,
       updateAvatarUrl,
       voicePresence,
       voiceSessions,
@@ -767,6 +832,9 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       serverEmojis,
       addEmoji,
       removeEmoji,
+      stickers,
+      addSticker,
+      removeSticker,
       updateAvatarUrl,
       voicePresence,
       voiceSessions,

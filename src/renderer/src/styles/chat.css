@@ -215,3 +215,60 @@
   vertical-align: -5px;
   margin: 0 1px;
 }
+
+/* figurinhas (stickers) e GIFs — grandes, aninmam automaticamente */
+.inline-sticker {
+  display: block;
+  width: 140px;
+  max-height: 140px;
+  object-fit: contain;
+  margin: 2px 0;
+}
+.message-content:has(.inline-sticker) {
+  background: var(--bg-modifier-hover);
+  border-radius: 8px;
+  padding: 6px 10px;
+  width: fit-content;
+}
+.emoji-panel-section.sticker {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.sticker-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+}
+.sticker-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  border-radius: 6px;
+}
+.sticker-btn:hover {
+  background: var(--bg-modifier-active);
+}
+.sticker-img-btn {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+}
+.sticker-empty {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--text-muted);
+  padding: 4px 0 8px;
+}
+.sticker-manage-link {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--blurple);
+  font-size: 12px;
+  font-weight: 600;
+}
+.sticker-manage-link:hover {
+  text-decoration: underline;
+}

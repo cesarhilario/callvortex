@@ -73,6 +73,33 @@ também `screen_shares` e `call_signals`. No app: entre num canal de voz e
 clique em "Compartilhar tela" — os outros participantes devem ver o
 indicador 🖥️ e receber a imagem.
 
+## 2.bis Figurinhas e GIFs (novo)
+
+Para habilitar **figurinhas/stickers e GIFs personalizados** em um projeto
+que já tem dados, rode apenas:
+
+```
+supabase/migrations/20261019000000_stickers.sql
+```
+
+Esse arquivo é **idempotente** e seguro para projetos com dados:
+
+- ✅ Cria a tabela `stickers` (pessoais e de servidor) com RLS ativado
+- ✅ Cria o bucket público `stickers` no Storage com políticas de dono
+- ✅ Adiciona a tabela na publicação Realtime (tolera execução repetida)
+- ❌ Não apaga nem altera dados existentes
+
+Precisa de permissão `create policy`/`create table` (dono do projeto) —
+geralmente ok no SQL Editor do painel.
+
+Passo a passo: igual às demais — copie o conteúdo no SQL Editor e **Run**.
+
+### Conferir que funcionou
+
+No app: menu do servidor → **🖼 Figurinhas e GIFs** → envie um GIF ou PNG.
+No chat, abra o painel 😀 → seção **Figurinhas e GIFs** → clique para inserir
+`{{nome}}` e envie a mensagem — a figurinha aparece grande para todos.
+
 ### ✅ Já aplicado (23/08/2026)
 
 Este projeto **já tem** o compartilhamento de tela aplicado no Supabase

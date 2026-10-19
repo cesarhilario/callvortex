@@ -1,6 +1,6 @@
 import { getSupabase } from './supabase'
 import { colorFromString, genInviteCode } from './types'
-import type { Channel, DmMessage, DmThreadWithOther, Message, Profile, Server, ServerEmoji } from './types'
+import type { Channel, DmMessage, DmThreadWithOther, Message, Profile, Server, ServerEmoji, Sticker } from './types'
 
 /**
  * Converte um erro em mensagem amigável (SEC-016).
@@ -425,6 +425,72 @@ export async function addServerEmoji(serverId: string, name: string, file: File)
   if (insertError) {
     await supabase.storage.from('emojis').remove([path])
     throw err('Erro ao salvar o emoji', insertError)
+  }
+}
+
+// ------------------------------------------------------------
+// FIGURINHAS / GIFS (personais e de servidor)
+// ------------------------------------------------------------
+
+/** Minhas figurinhas pessoais + as do servidor ativo (numa lista só). */
+export async function fetchStickers(serverId: string | null): Promise<Sticker[]> {
+  const supabase = getSupabase()
+  const {
+    data: { user }
+  } = await supabase.auth.getUser()
+  if (!user) return []
+  const { data, error } = await supabase
+    .from('stickers')
+    .select('id, server_id, owner_user_id, name, url, created_at')
+    .or(`owner_user_id.eq.${user.id},server_id.eq.${serverId ?? '00000000-0000-0000-0000-000000000000'}`)
+    .order('created_at', { ascending: true })
+  if (error) throw err('Erro ao carregar figurinhas', error)
+  return (data as Sticker[]) ?? []
+}
+
+/**
+ * Envia a figurinha para o Storage e registra na tabela.
+ * @param scope null = pessoal ('user/<meuId>/…'); string = servidor ('server/<id>/…')
+ */
+export async function addSticker(scope: 'user' | string, name: string, file: File): Promise<void> {
+  const supabase = getSupabase()
+  const {
+    data: { user }
+  } = await supabase.auth.getUser()
+  if (!user) throw new Error('Você precisa estar logado.')
+
+  const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+  const safeName = name.toLowerCase()
+  const isServer = scope !== 'user'
+  const insert = isServer
+    ? { server_id: scope, owner_user_id: null, name: safeName, url: '' }
+    : { server_id: null, owner_user_id: user.id, name: safeName, url: '' }
+  const path = isServer
+    ? `stickers/server/${scope}/${crypto.randomUUID()}.${ext}`
+    : `stickers/user/${user.id}/${crypto.randomUUID()}.${ext}`
+
+  const { error: upErr } = await supabase.storage.from('stickers').upload(path, file, { upsert: false, contentType: file.type })
+  if (upErr) throw err('Erro ao enviar a figurinha', upErr)
+  const { data } = supabase.storage.from('stickers').getPublicUrl(path)
+
+  const { error: insertError } = await supabase.from('stickers').insert({ ...insert, url: data.publicUrl })
+  if (insertError) {
+    await supabase.storage.from('stickers').remove([path])
+    throw err('Erro ao salvar a figurinha', insertError)
+  }
+}
+
+export async function removeSticker(stickerId: string): Promise<void> {
+  const supabase = getSupabase()
+  const { data } = await supabase.from('stickers').select('url').eq('id', stickerId).maybeSingle()
+  const { error } = await supabase.from('stickers').delete().eq('id', stickerId)
+  if (error) throw err('Erro ao excluir a figurinha', error)
+  if (data?.url) {
+    const path = data.url.split('/stickers/')[1]
+    if (path) await supabase.storage.from('stickers').remove([decodeURIComponent(path)]).then(
+      () => undefined,
+      () => undefined
+    )
   }
 }
 

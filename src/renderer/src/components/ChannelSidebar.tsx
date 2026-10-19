@@ -105,6 +105,15 @@ export default function ChannelSidebar(): React.JSX.Element {
                   <span className="server-menu-icon">😀</span> Gerenciar emojis
                 </div>
               )}
+              <div
+                className="server-menu-item"
+                onClick={() => {
+                  setMenuOpen(false)
+                  openModal('manage-stickers')
+                }}
+              >
+                <span className="server-menu-icon">🖼</span> Figurinhas e GIFs
+              </div>
               {isOwner && (
                 <div
                   className="server-menu-item danger"
