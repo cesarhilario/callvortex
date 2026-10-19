@@ -158,6 +158,23 @@ export async function fetchChannels(serverId: string): Promise<Channel[]> {
   return (data as Channel[]) ?? []
 }
 
+/**
+ * Canais de TODOS os servidores de que sou membro (a RLS de channels
+ * permite select para membros). Usado para mapear channel_id -> server_id
+ * nos contadores de não lidas e nas assinaturas globais de mensagens.
+ */
+export async function fetchAllChannels(serverIds: string[]): Promise<Channel[]> {
+  const supabase = getSupabase()
+  if (serverIds.length === 0) return []
+  const { data, error } = await supabase
+    .from('channels')
+    .select('id, server_id, name, type, created_at')
+    .in('server_id', serverIds)
+    .order('created_at', { ascending: true })
+  if (error) throw err('Erro ao carregar canais', error)
+  return (data as Channel[]) ?? []
+}
+
 export async function createChannel(serverId: string, name: string, type: 'text' | 'voice' = 'text'): Promise<void> {
   const supabase = getSupabase()
   const { error } = await supabase

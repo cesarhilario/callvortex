@@ -7,6 +7,7 @@ import {
   MicIcon,
   MicOffIcon,
   PhoneOffIcon,
+  UserPlusIcon,
   VolumeHighIcon
 } from './Icons'
 import ScreenShareButton from './ScreenShareButton'
@@ -41,7 +42,8 @@ export default function VoiceChannelScreen({ channel }: { channel: Channel }): R
     joinVoice,
     leaveVoice,
     toggleVoiceMute,
-    toggleVoiceDeafen
+    toggleVoiceDeafen,
+    openModal
   } = useApp()
 
   const joined = voiceChannelId === channel.id
@@ -57,7 +59,7 @@ export default function VoiceChannelScreen({ channel }: { channel: Channel }): R
 
   return (
     <section className="chat voice-screen">
-      <header className="chat-header">
+      <header className="chat-header voice-invite-header">
         <div className="chat-title">
           <span className="voice-call-channel-icon">
             <VolumeHighIcon size={20} />
@@ -85,6 +87,12 @@ export default function VoiceChannelScreen({ channel }: { channel: Channel }): R
             )}
           </span>
         </div>
+        {joined && (
+          <button className="voice-invite-header-btn" title="Convidar amigos para a chamada" onClick={() => openModal('voice-invite')}>
+            <UserPlusIcon size={16} />
+            Convidar
+          </button>
+        )}
       </header>
 
       <div className="voice-call">

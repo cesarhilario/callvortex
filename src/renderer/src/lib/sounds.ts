@@ -52,6 +52,12 @@ export function playLeaveSound(): void {
   tone({ freq: 380, when: 0.06, dur: 0.12, vol: 0.22 })
 }
 
+/** Nova mensagem de texto (canal/DM não focado) — "pling" leve e curto */
+export function playMessageSound(): void {
+  tone({ freq: 660, dur: 0.09, vol: 0.14, type: 'sine' })
+  tone({ freq: 990, when: 0.06, dur: 0.14, vol: 0.11, type: 'sine' })
+}
+
 /** Muto/desmuto o microfone — tick suave e curto */
 export function playMuteSound(): void {
   tone({ freq: 880, dur: 0.04, vol: 0.15 })

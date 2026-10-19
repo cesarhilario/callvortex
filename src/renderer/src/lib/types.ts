@@ -75,7 +75,17 @@ export type Screen =
   | { type: 'dm'; threadId: string | null }
   | { type: 'server'; serverId: string; channelId: string }
 
-export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | null
+/** Convite direto para uma sala de voz, transmitido em tempo real (Etapa 2). */
+export interface VoiceInvite {
+  channelId: string
+  serverId: string
+  channelName: string
+  serverName: string
+  inviter: Profile
+  invitedAt: number
+}
+
+export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | 'voice-invite' | null
 
 export const AVATAR_COLORS = [
   '#5865f2',

@@ -14,8 +14,11 @@ import { useScreenShare } from './useScreenShare'
 import { useRealtimeSubscriptions } from './realtime'
 import { measurePing, qualityFromPing } from './internet'
 import { VOICE_REJOIN_MS, readVoiceSession } from './settings'
+import { playMessageSound } from './sounds'
+import { subscribeVoiceInvites, sendVoiceInvite } from './invites'
+import { writeVoiceSession } from './settings'
 import type { AppContextValue, AuthState, Notice, SavedCredentials } from './app-types'
-import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, VoicePeerInfo } from './types'
+import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, VoiceInvite, VoicePeerInfo } from './types'
 
 export type { Notice, SavedCredentials } from './app-types'
 
@@ -47,6 +50,23 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   const [voiceSessions, setVoiceSessions] = useState<Record<string, string>>({})
   // ping da conexão com o servidor do app (sinal de internet)
   const [internetPing, setInternetPing] = useState<number | null>(null)
+  // ------------------------------------------------------------
+  // Notificações e não lidas (Etapa 1)
+  // ------------------------------------------------------------
+  const [allChannels, setAllChannels] = useState<Channel[]>([])
+  const [unreadChannels, setUnreadChannels] = useState<Record<string, number>>({})
+  const [unreadDms, setUnreadDms] = useState<Record<string, number>>({})
+  // convites diretos de voz recebidos (popups flutuantes)
+  const [incomingInvites, setIncomingInvites] = useState<VoiceInvite[]>([])
+
+  // refs com os valores "ao vivo" para as assinaturas de notificação
+  // (o callback do realtime lê os valores atuais sem refazer o subscribe)
+  const screenRef = useRef<Screen | null>(null)
+  const allChannelsRef = useRef<Channel[]>([])
+  const dmsRef = useRef(dms)
+  const profileRef = useRef(profile)
+  const activeServersRef = useRef(servers)
+  const voiceChannelIdRef = useRef<string | null>(null)
 
   const notify = useCallback((kind: Notice['kind'], text: string) => {
     if (noticeTimer.current) clearTimeout(noticeTimer.current)
@@ -54,11 +74,27 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     noticeTimer.current = setTimeout(() => setNotice(null), 5000)
   }, [])
 
+  // mantém as refs de notificação sempre com o valor do render atual
+
+  screenRef.current = screen
+  dmsRef.current = dms
+  profileRef.current = profile
+  activeServersRef.current = servers
+
   // ------------------------------------------------------------
   // Voz (WebRTC + dispositivos + controles) — hook próprio
   // ------------------------------------------------------------
   const activeServerId = screen?.type === 'server' ? screen.serverId : null
+  // mapa consolidado de canais (canais -> servidor): os canais carregados
+  // do servidor ativo (frescos) sobrescrevem os da busca geral de todos
+  const channelList = useMemo(() => {
+    if (activeServerId === null) return allChannels
+    const others = allChannels.filter((c) => c.server_id !== activeServerId)
+    return [...others, ...channels]
+  }, [allChannels, channels, activeServerId])
+  allChannelsRef.current = channelList
   const voice = useVoice({ profile, activeServerId, notify })
+  voiceChannelIdRef.current = voice.voiceChannelId
 
   // ------------------------------------------------------------
   // Compartilhamento de tela (reutiliza a malha WebRTC da voz)
@@ -191,8 +227,120 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   }, [authState, screen?.type, screen?.type === 'server' ? screen.serverId : null]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ------------------------------------------------------------
-  // Ações
+  // Canais de todos os servidores (mapa channel_id -> server_id):
+  // recarrega quando a lista de servidores muda (criou/entrou/excluiu)
   // ------------------------------------------------------------
+  const serverIds = useMemo(() => servers.map((s) => s.id).join(','), [servers])
+  useEffect(() => {
+    if (authState !== 'signedIn') {
+      setAllChannels([])
+      setUnreadChannels({})
+      setUnreadDms({})
+      setIncomingInvites([])
+      return
+    }
+    const ids = serverIds ? serverIds.split(',') : []
+    if (ids.length === 0) {
+      setAllChannels([])
+      return
+    }
+    let cancelled = false
+    void api
+      .fetchAllChannels(ids)
+      .then((c) => {
+        if (!cancelled) setAllChannels(c)
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [authState, serverIds])
+
+  // ------------------------------------------------------------
+  // Assinatura global de novas mensagens (canais + DMs):
+  //  - incrementa o badge da conversa/canal que NÃO está focado
+  //  - toca o ping de nova mensagem (mesmo caso)
+  //  - ignora mensagens do próprio autor e do chat em foco
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (authState !== 'signedIn') return
+    const supabase = getSupabase()
+    const ch = supabase.channel('msg-notifications')
+
+    const bumpChannel = (channelId: string): void =>
+      setUnreadChannels((prev) => ({ ...prev, [channelId]: (prev[channelId] ?? 0) + 1 }))
+    const bumpDm = (threadId: string): void =>
+      setUnreadDms((prev) => ({ ...prev, [threadId]: (prev[threadId] ?? 0) + 1 }))
+
+    // mensagem de canal de servidor
+    ch.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+      const row = payload.new as { id: number; channel_id: string; author_id: string } | null
+      if (!row || row.author_id === profileRef.current?.id) return
+      const channel = allChannelsRef.current.find((c) => c.id === row.channel_id)
+      if (!channel || channel.type !== 'text') return // desconhecido ou canal de voz
+      if (screenRef.current?.type === 'server' && screenRef.current.channelId === row.channel_id) return // chat focado
+      bumpChannel(row.channel_id)
+      playMessageSound()
+    })
+      // mensagem direta
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'dm_messages' }, (payload) => {
+        const row = payload.new as { id: number; thread_id: string; author_id: string } | null
+        if (!row || row.author_id === profileRef.current?.id) return
+        if (!dmsRef.current.some((t) => t.id === row.thread_id)) return // conversa nova: o refresh de dms-live exibe o badge no próximo update
+        if (screenRef.current?.type === 'dm' && screenRef.current.threadId === row.thread_id) return // chat focado
+        bumpDm(row.thread_id)
+        playMessageSound()
+      })
+
+    void ch.subscribe()
+    return () => {
+      void supabase.removeChannel(ch)
+    }
+  }, [authState])
+
+  // ------------------------------------------------------------
+  // Convites diretos de voz: assinatura + ações (Etapa 2)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (authState !== 'signedIn' || !profile) return
+    const myId = profile.id
+    const unsubscribe = subscribeVoiceInvites(myId, (inv) => {
+      // sanea: convite precisa ser de outra pessoa, para um servidor de que
+      // sou membro e para uma sala em que já não estou
+      if (inv.inviter?.id === myId) return
+      if (!activeServersRef.current.some((s) => s.id === inv.serverId)) return
+      if (voiceChannelIdRef.current === inv.channelId) return
+      setIncomingInvites((prev) => {
+        if (prev.some((p) => p.channelId === inv.channelId && p.inviter.id === inv.inviter.id)) return prev
+        return [inv, ...prev]
+      })
+      playMessageSound()
+    })
+    return unsubscribe
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState, profile?.id])
+
+  // convites pendurados mais de 5 min expiram sozinhos
+  useEffect(() => {
+    if (incomingInvites.length === 0) return
+    const iv = setInterval(() => {
+      setIncomingInvites((prev) => prev.filter((p) => Date.now() - p.invitedAt < 5 * 60_000))
+    }, 30_000)
+    return () => clearInterval(iv)
+  }, [incomingInvites.length])
+
+  // ------------------------------------------------------------
+  // Focar canal/conversa zera o badge (marcar como lido)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (screen?.type === 'server' && screen.channelId) {
+      const channelId = screen.channelId
+      setUnreadChannels((prev) => (prev[channelId] ? { ...prev, [channelId]: 0 } : prev))
+    } else if (screen?.type === 'dm' && screen.threadId) {
+      const threadId = screen.threadId
+      setUnreadDms((prev) => (prev[threadId] ? { ...prev, [threadId]: 0 } : prev))
+    }
+  }, [screen])
   const login = useCallback(async (email: string, password: string) => {
     await api.signIn(email, password)
   }, [])
@@ -227,6 +375,57 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
 
   const selectDm = useCallback((threadId: string | null) => {
     setScreen({ type: 'dm', threadId })
+  }, [])
+
+  // ------------------------------------------------------------
+  // Convites diretos de voz: enviar / aceitar / recusar (Etapa 2)
+  // ------------------------------------------------------------
+  const sendVoiceInviteTo = useCallback(
+    async (toUserId: string): Promise<boolean> => {
+      const me = profile
+      const channelId = voice.voiceChannelId
+      if (!me || !channelId || toUserId === me.id) return false
+      const channel = channelList.find((c) => c.id === channelId)
+      const server = servers.find((s) => s.id === channel?.server_id)
+      if (!channel || !server) return false
+      try {
+        await sendVoiceInvite(toUserId, {
+          channelId,
+          serverId: server.id,
+          channelName: channel.name,
+          serverName: server.name,
+          inviter: { id: me.id, username: me.username, avatar_color: me.avatar_color, avatar_url: me.avatar_url },
+          invitedAt: Date.now()
+        })
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Não foi possível enviar o convite')
+        return false
+      }
+    },
+    [profile, voice.voiceChannelId, channelList, servers, notify]
+  )
+
+  const acceptVoiceInvite = useCallback(
+    async (inv: VoiceInvite) => {
+      setIncomingInvites((prev) => prev.filter((p) => !(p.channelId === inv.channelId && p.inviter.id === inv.inviter.id)))
+      if (!profile) return
+      try {
+        await selectServer(inv.serverId) // carrega os canais e troca de servidor
+        selectChannel(inv.channelId) // foca o canal de voz
+        await voice.rejoin(inv.channelId, profile, inv.serverId)
+        // registra a sessão local para o rejoin automático funcionar igual ao joinVoice
+        writeVoiceSession({ channelId: inv.channelId, serverId: inv.serverId, at: Date.now() })
+        notify('success', `Você entrou na chamada — ${inv.serverName} · ${inv.channelName}`)
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Não foi possível entrar na chamada')
+      }
+    },
+    [profile, selectServer, selectChannel, voice, notify]
+  )
+
+  const declineVoiceInvite = useCallback((inv: VoiceInvite) => {
+    setIncomingInvites((prev) => prev.filter((p) => !(p.channelId === inv.channelId && p.inviter.id === inv.inviter.id)))
   }, [])
 
   // ------------------------------------------------------------
@@ -451,6 +650,32 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
 
   const internetQuality = qualityFromPing(internetPing)
 
+  // ------------------------------------------------------------
+  // Badges derivados (servidor e aba de DMs)
+  // ------------------------------------------------------------
+  const unreadByServer = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const c of channelList) {
+      const n = unreadChannels[c.id] ?? 0
+      if (n > 0) map[c.server_id] = (map[c.server_id] ?? 0) + n
+    }
+    return map
+  }, [channelList, unreadChannels])
+
+  const unreadDmTotal = useMemo(() => {
+    let total = 0
+    for (const n of Object.values(unreadDms)) total += n
+    return total
+  }, [unreadDms])
+
+  const markChannelRead = useCallback((channelId: string) => {
+    setUnreadChannels((prev) => (prev[channelId] ? { ...prev, [channelId]: 0 } : prev))
+  }, [])
+
+  const markDmRead = useCallback((threadId: string) => {
+    setUnreadDms((prev) => (prev[threadId] ? { ...prev, [threadId]: 0 } : prev))
+  }, [])
+
   const value = useMemo<AppContextValue>(
     () => ({
       ...voice,
@@ -493,6 +718,17 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       voiceSessions,
       internetPing,
       internetQuality,
+      allChannels: channelList,
+      unreadChannels,
+      unreadDms,
+      unreadByServer,
+      unreadDmTotal,
+      markChannelRead,
+      markDmRead,
+      incomingInvites,
+      sendVoiceInviteTo,
+      acceptVoiceInvite,
+      declineVoiceInvite,
       notify
     }),
     [
@@ -536,6 +772,15 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       voiceSessions,
       internetPing,
       internetQuality,
+      channelList,
+      unreadByServer,
+      unreadDmTotal,
+      markChannelRead,
+      markDmRead,
+      incomingInvites,
+      sendVoiceInviteTo,
+      acceptVoiceInvite,
+      declineVoiceInvite,
       notify
     ]
   )

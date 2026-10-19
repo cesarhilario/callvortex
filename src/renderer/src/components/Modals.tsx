@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../lib/useApp'
-import { getOrCreateDmThread, searchUsers } from '../lib/api'
+import { getOrCreateDmThread, searchUsers, fetchMembers } from '../lib/api'
 import type { Profile } from '../lib/types'
 import Avatar from './Avatar'
 
@@ -344,6 +344,99 @@ function ManageEmojisModal({ onClose }: { onClose: () => void }): React.JSX.Elem
   )
 }
 
+/**
+ * Modal "Convidar amigos": lista suas conversas (DMs) e os membros online
+ * do servidor atual; um clique envia o convite direto para a chamada ativa.
+ */
+function VoiceInviteModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const { voiceChannelId, allChannels, servers, dms, onlineUsers, profile, screen, sendVoiceInviteTo, voicePresence } = useApp()
+  const [sent, setSent] = useState<Record<string, boolean>>({})
+  const [busy, setBusy] = useState<string | null>(null)
+  const [members, setMembers] = useState<Profile[]>([])
+
+  const activeServerId = screen?.type === 'server' ? screen.serverId : (voiceChannelId !== null ? (allChannels.find((c) => c.id === voiceChannelId)?.server_id ?? null) : null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!activeServerId) {
+      setMembers([])
+      return
+    }
+    void fetchMembers(activeServerId)
+      .then((ms) => {
+        if (!cancelled) setMembers(ms.filter((m) => m.id !== profile?.id))
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [activeServerId, profile?.id])
+
+  const channel = allChannels.find((c) => c.id === voiceChannelId)
+  const server = servers.find((s) => s.id === channel?.server_id)
+  const inCall = new Set((voicePresence[voiceChannelId ?? ''] ?? []).map((p) => p.userId))
+
+  // lista de contatos: conversas primeiro (a "lista de amigos" do app)
+  const seen = new Set([profile?.id])
+  const dmContacts: Profile[] = []
+  for (const t of dms) {
+    if (seen.has(t.other.id)) continue
+    seen.add(t.other.id)
+    dmContacts.push(t.other)
+  }
+  const onlineMembers = members.filter((m) => onlineUsers.has(m.id) && !seen.has(m.id))
+
+  const invite = async (userId: string): Promise<void> => {
+    setBusy(userId)
+    const ok = await sendVoiceInviteTo(userId)
+    setSent((prev) => ({ ...prev, [userId]: ok }))
+    setBusy(null)
+  }
+
+  const row = (p: Profile): React.JSX.Element => {
+    const onCall = inCall.has(p.id)
+    return (
+      <div key={p.id} className="invite-contact">
+        <Avatar name={p.username} color={p.avatar_color} size={32} online={onlineUsers.has(p.id)} url={p.avatar_url} />
+        <span className="invite-contact-name">{p.username}</span>
+        {sent[p.id] ? (
+          <span className="invite-contact-sent">Enviado ✓</span>
+        ) : onCall ? (
+          <span className="invite-contact-oncall">Na chamada</span>
+        ) : (
+          <button className="btn-secondary invite-contact-btn" disabled={busy === p.id} onClick={() => void invite(p.id)}>
+            {busy === p.id ? 'Enviando…' : 'Convidar'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  const listEmpty = dmContacts.length === 0 && onlineMembers.length === 0
+
+  return (
+    <ModalShell title="Convidar para a chamada" onClose={onClose}>
+      <div className="modal-form">
+        <p className="modal-hint">
+          {server ? `${server.name} · 🔊 ${channel?.name ?? ''}` : 'Chamada de voz ativa'}
+      </p>
+        <div className="invite-contact-list">
+          {dmContacts.length > 0 && <div className="invite-contact-section">Suas conversas</div>}
+          {dmContacts.map((p) => row(p))}
+          {onlineMembers.length > 0 && <div className="invite-contact-section">Online neste servidor</div>}
+          {onlineMembers.map((p) => row(p))}
+          {listEmpty && <div className="modal-hint">Ninguém para convidar ainda. Abra uma conversa ou convide amigos para o servidor com o código de convite.</div>}
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Fechar
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
 export default function Modals(): React.JSX.Element | null {
   const { modal, closeModal } = useApp()
   if (!modal) return null
@@ -360,6 +453,8 @@ export default function Modals(): React.JSX.Element | null {
       return <StartDmModal onClose={closeModal} />
     case 'manage-emojis':
       return <ManageEmojisModal onClose={closeModal} />
+    case 'voice-invite':
+      return <VoiceInviteModal onClose={closeModal} />
     default:
       return null
   }

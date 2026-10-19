@@ -1,4 +1,4 @@
-import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, VoicePeerInfo } from './types'
+import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, VoiceInvite, VoicePeerInfo } from './types'
 import type { ScreenShareApi } from './useScreenShare'
 
 export type AuthState = 'loading' | 'signedOut' | 'signedIn'
@@ -96,4 +96,32 @@ export interface AppContextValue {
   setSystemAudioEnabled: ScreenShareApi['setSystemAudioEnabled']
   stopScreenShare: ScreenShareApi['stopScreenShare']
   notify: (kind: Notice['kind'], text: string) => void
+  // ------------------------------------------------------------
+  // Notificações e não lidas (Etapa 1)
+  // ------------------------------------------------------------
+  /** canais de todos os servidores que sou membro (mapa channel_id -> server_id) */
+  allChannels: Channel[]
+  /** mensagens não lidas por canal de texto */
+  unreadChannels: Record<string, number>
+  /** mensagens não lidas por conversa direta (thread_id) */
+  unreadDms: Record<string, number>
+  /** soma das não lidas de canais de texto por servidor (badge no rail) */
+  unreadByServer: Record<string, number>
+  /** soma de todas as não lidas de DMs (badge da aba de conversas no rail) */
+  unreadDmTotal: number
+  /** zera o contador do canal (marcar como lido) */
+  markChannelRead: (channelId: string) => void
+  /** zera o contador da conversa (marcar como lida) */
+  markDmRead: (threadId: string) => void
+  // ------------------------------------------------------------
+  // Convites diretos para salas de voz (Etapa 2)
+  // ------------------------------------------------------------
+  /** convites recebidos (popup com Entrar/Recusar) */
+  incomingInvites: VoiceInvite[]
+  /** envia convite da chamada atual para alguém (código da lista) */
+  sendVoiceInviteTo: (toUserId: string) => Promise<boolean>
+  /** aceita o convite: navega até o servidor/canal e entra na chamada */
+  acceptVoiceInvite: (invite: VoiceInvite) => Promise<void>
+  /** descarta o convite */
+  declineVoiceInvite: (invite: VoiceInvite) => void
 }

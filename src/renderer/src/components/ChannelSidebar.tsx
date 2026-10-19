@@ -3,7 +3,7 @@ import { uploadAvatar } from '../lib/api'
 import type { Channel } from '../lib/types'
 import { useApp } from '../lib/useApp'
 import Avatar from './Avatar'
-import { ActivitiesIcon, BroadcastIcon, ChevronDownIcon, GearIcon, HeadphonesIcon, HeadphonesOffIcon, MicIcon, MicOffIcon, MonitorIcon, PencilIcon, PhoneOffIcon, PowerIcon, RouterIcon, VideoIcon } from './Icons'
+import { ActivitiesIcon, BroadcastIcon, ChevronDownIcon, GearIcon, HeadphonesIcon, HeadphonesOffIcon, MicIcon, MicOffIcon, MonitorIcon, PencilIcon, PhoneOffIcon, PowerIcon, RouterIcon, UserPlusIcon, VideoIcon } from './Icons'
 import MicPicker from './MicPicker'
 import OutputPicker from './OutputPicker'
 import ScreenShareButton from './ScreenShareButton'
@@ -37,6 +37,10 @@ export default function ChannelSidebar(): React.JSX.Element {
     speakingUsers,
     peerSignals,
     screenShareState,
+    unreadChannels,
+    unreadDms,
+    markChannelRead,
+    markDmRead,
     selectChannel,
     selectDm,
     openModal,
@@ -131,10 +135,19 @@ export default function ChannelSidebar(): React.JSX.Element {
             </div>
             {textChannels.map((c) => {
               const active = screen.channelId === c.id
+              const unread = unreadChannels[c.id] ?? 0
               return (
-                <div key={c.id} className={`channel-item ${active ? 'active' : ''}`} onClick={() => selectChannel(c.id)}>
+                <div
+                  key={c.id}
+                  className={`channel-item ${active ? 'active' : ''} ${unread > 0 ? 'unread' : ''}`}
+                  onClick={() => {
+                    selectChannel(c.id)
+                    markChannelRead(c.id)
+                  }}
+                >
                   <span className="channel-hash">#</span>
                   <span className="channel-name">{c.name}</span>
+                  {unread > 0 && <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>}
                   {isOwner && (
                     <span className="channel-actions">
                       <button className="channel-edit" title="Renomear canal" onClick={(e) => { e.stopPropagation(); openRenameChannel(c) }}>
@@ -282,10 +295,19 @@ export default function ChannelSidebar(): React.JSX.Element {
           {dms.map((t) => {
             const active = screen?.type === 'dm' && screen.threadId === t.id
             const online = onlineUsers.has(t.other.id)
+            const unread = unreadDms[t.id] ?? 0
             return (
-              <div key={t.id} className={`channel-item dm-item ${active ? 'active' : ''}`} onClick={() => selectDm(t.id)}>
+              <div
+                key={t.id}
+                className={`channel-item dm-item ${active ? 'active' : ''} ${unread > 0 ? 'unread' : ''}`}
+                onClick={() => {
+                  selectDm(t.id)
+                  markDmRead(t.id)
+                }}
+              >
                 <Avatar name={t.other.username} color={t.other.avatar_color} size={30} online={online} url={t.other.avatar_url} />
                 <span className="dm-name">{t.other.username}</span>
+                {unread > 0 && <span className="channel-unread-badge dm">{unread > 99 ? '99+' : unread}</span>}
                 {t.last_message && (
                   <span className="dm-preview">
                     {t.last_message_author === profile?.id ? 'Você: ' : ''}
@@ -321,7 +343,8 @@ function VoiceConnectedPanel(): React.JSX.Element | null {
     internetQuality,
     leaveVoice,
     toggleVoiceMute,
-    toggleVoiceDeafen
+    toggleVoiceDeafen,
+    openModal
   } = useApp()
   const [micSettingsOpen, setMicSettingsOpen] = useState(false)
   const [headphoneSettingsOpen, setHeadphoneSettingsOpen] = useState(false)
@@ -363,6 +386,9 @@ function VoiceConnectedPanel(): React.JSX.Element | null {
           <VideoIcon size={18} />
         </button>
         <ScreenShareButton variant="quick" size={18} />
+        <button className="voice-quick-action invite" title="Convidar amigos para a chamada" onClick={() => openModal('voice-invite')}>
+          <UserPlusIcon size={18} />
+        </button>
         <button className="voice-quick-action" title="Atividades">
           <ActivitiesIcon size={18} />
         </button>

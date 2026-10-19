@@ -9,6 +9,7 @@ import Modals from './components/Modals'
 import Logo from './components/Logo'
 import ScreenShareStage from './components/ScreenShareStage'
 import ScreenSharePicker from './components/ScreenSharePicker'
+import VoiceInvitePopups from './components/VoiceInvitePopups'
 
 function SetupScreen(): React.JSX.Element {
   return (
@@ -71,6 +72,7 @@ function MainLayout(): React.JSX.Element {
       {/* Picker de fontes do compartilhamento — instância única para todo o
           app (o botão de compartilhar aparece em mais de um lugar). */}
       <ScreenSharePicker />
+      <VoiceInvitePopups />
       <Toast />
       <Modals />
     </div>

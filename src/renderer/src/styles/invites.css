@@ -1,0 +1,163 @@
+/* ---------------------------------------------------------- */
+/* Convites diretos de voz (modal + popups recebidos)          */
+/* ---------------------------------------------------------- */
+
+/* lista de contatos no modal "Convidar para a chamada" */
+.invite-contact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 340px;
+  overflow-y: auto;
+  margin-top: 8px;
+}
+.invite-contact-section {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 10px 4px 4px;
+}
+.invite-contact {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+.invite-contact:hover {
+  background: var(--bg-modifier-hover);
+}
+.invite-contact-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.invite-contact-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+.invite-contact-sent,
+.invite-contact-oncall {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  color: var(--green);
+}
+.invite-contact-oncall {
+  color: var(--text-muted);
+}
+
+/* botão "Convidar" no cabeçalho da sala de voz */
+.voice-invite-header-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  background: var(--bg-modifier-hover);
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.voice-invite-header-btn:hover {
+  color: #fff;
+  background: var(--blurple);
+}
+.voice-invite-header {
+  gap: 8px;
+}
+
+/* popups flutuantes dos convites recebidos */
+.voice-invite-popups {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 900;
+}
+.voice-invite-popup {
+  width: 320px;
+  background: var(--bg-floating);
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.voice-invite-popup-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.voice-invite-popup-ring {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(35, 165, 90, 0.18);
+  color: var(--green);
+  flex-shrink: 0;
+}
+.voice-invite-popup-label {
+  flex: 1;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.voice-invite-popup-close {
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.voice-invite-popup-close:hover {
+  color: var(--text-normal);
+  background: var(--bg-modifier-hover);
+}
+.voice-invite-popup-body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.voice-invite-popup-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.voice-invite-popup-inviter {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+.voice-invite-popup-where {
+  color: var(--text-muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.voice-invite-popup-actions {
+  display: flex;
+  gap: 8px;
+}
+.voice-invite-popup-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}

@@ -19,7 +19,7 @@ function CompassIcon(): React.JSX.Element {
 }
 
 export default function ServerRail(): React.JSX.Element {
-  const { servers, screen, selectServer, selectDm, openModal } = useApp()
+  const { servers, screen, selectServer, selectDm, openModal, unreadByServer, unreadDmTotal } = useApp()
   const dmActive = screen?.type === 'dm'
 
   return (
@@ -27,10 +27,11 @@ export default function ServerRail(): React.JSX.Element {
       <div className="server-rail-top">
         <button
           className={`rail-btn rail-dm ${dmActive ? 'active' : ''}`}
-          title="Mensagens diretas"
+          title={`Mensagens diretas${unreadDmTotal > 0 ? ` · ${unreadDmTotal} não lida${unreadDmTotal > 1 ? 's' : ''}` : ''}`}
           onClick={() => selectDm(null)}
         >
           <span className="rail-dm-icon">💬</span>
+          {unreadDmTotal > 0 && <span className="rail-badge pill">{unreadDmTotal > 99 ? '99+' : unreadDmTotal}</span>}
         </button>
         <div className="rail-divider" />
       </div>
@@ -38,15 +39,17 @@ export default function ServerRail(): React.JSX.Element {
       <div className="rail-servers">
         {servers.map((s) => {
           const active = screen?.type === 'server' && screen.serverId === s.id
+          const unread = unreadByServer[s.id] ?? 0
           return (
             <button
               key={s.id}
               className={`rail-btn ${active ? 'active' : ''}`}
-              title={s.name}
+              title={`${s.name}${unread > 0 ? ` · ${unread} não lida${unread > 1 ? 's' : ''}` : ''}`}
               onClick={() => void selectServer(s.id)}
             >
               <Avatar name={s.name} color={s.icon_color} size={48} />
               <span className="rail-tooltip">{s.name}</span>
+              {unread > 0 && <span className="rail-badge pill">{unread > 99 ? '99+' : unread}</span>}
             </button>
           )
         })}
