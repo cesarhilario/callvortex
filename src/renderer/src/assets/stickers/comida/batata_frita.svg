@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff7e6"/><stop offset="1" stop-color="#ffd7a8"/></linearGradient></defs>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="url(#bg)"/>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="3"/>
+<ellipse cx="44" cy="28" rx="34" ry="19" fill="#ffffff" opacity="0.12"/>
+<path d="M38 58 L90 58 L82 116 L46 116 Z" fill="#e53935" /><rect x="42" y="64" width="44" height="9" rx="4" fill="#fff" opacity=".85"/><rect x="46" y="12" width="10" height="52" rx="4" fill="#ffd23f" transform="rotate(-8 51 38)"/><rect x="60" y="8" width="10" height="56" rx="4" fill="#ffd23f" /><rect x="74" y="12" width="10" height="52" rx="4" fill="#ffd23f" transform="rotate(8 79 38)"/><rect x="34" y="26" width="10" height="38" rx="4" fill="#f0b22a" transform="rotate(-18 39 45)"/><rect x="86" y="26" width="10" height="38" rx="4" fill="#f0b22a" transform="rotate(18 91 45)"/>
+</svg>

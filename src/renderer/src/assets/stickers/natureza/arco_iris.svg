@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d8f0ff"/><stop offset="1" stop-color="#8fd0ff"/></linearGradient></defs>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="url(#bg)"/>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="3"/>
+<ellipse cx="44" cy="28" rx="34" ry="19" fill="#ffffff" opacity="0.12"/>
+<path d="M18 98 Q18 34 64 34 Q110 34 110 98" fill="none" stroke="#e53935" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" /><path d="M28 98 Q28 44 64 44 Q100 44 100 98" fill="none" stroke="#ff9800" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" /><path d="M38 98 Q38 54 64 54 Q90 54 90 98" fill="none" stroke="#ffd23f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" /><path d="M48 98 Q48 64 64 64 Q80 64 80 98" fill="none" stroke="#4fae4f" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" /><path d="M58 98 Q58 74 64 74 Q70 74 70 98" fill="none" stroke="#4f9fe0" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" />
+</svg>

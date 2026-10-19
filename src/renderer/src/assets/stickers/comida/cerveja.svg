@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset="1" stop-color="#ffd15c"/></linearGradient></defs>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="url(#bg)"/>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="3"/>
+<ellipse cx="44" cy="28" rx="34" ry="19" fill="#ffffff" opacity="0.12"/>
+<rect x="34" y="40" width="50" height="62" rx="8" fill="#f0b22a" /><rect x="84" y="52" width="16" height="34" rx="8" fill="none" stroke="#f0b22a" stroke-width="9"/><ellipse cx="59" cy="42" rx="25" ry="12" fill="#fff7e6" /><circle cx="48" cy="32" r="9" fill="#fff7e6" /><circle cx="66" cy="30" r="11" fill="#fff7e6" /><circle cx="76" cy="36" r="7" fill="#fff7e6" /><path d="M46 58 v34 M60 58 v34 M72 58 v34" fill="none" stroke="#d99a1a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".6"/><circle cx="50" cy="74" r="3" fill="#fff" opacity=".7"/><circle cx="66" cy="88" r="2.5" fill="#fff" opacity=".7"/>
+</svg>

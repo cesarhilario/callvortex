@@ -4,7 +4,7 @@ import { getSupabase } from '../lib/supabase'
 import { deleteDmMessage, deleteMessage, fetchDmMessages, fetchMessages } from '../lib/api'
 import type { Profile, ServerEmoji, Sticker } from '../lib/types'
 import { useApp } from '../lib/useApp'
-import { DEFAULT_STICKERS } from '../lib/defaultStickers'
+import { DEFAULT_STICKERS, STICKER_CATEGORIES } from '../lib/defaultStickers'
 import Avatar from './Avatar'
 import VoiceChannelScreen from './VoiceChannelScreen'
 
@@ -68,6 +68,7 @@ export default function ChatArea(): React.JSX.Element {
   const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [emojiOpen, setEmojiOpen] = useState(false)
+  const [stickerCat, setStickerCat] = useState(STICKER_CATEGORIES[0]?.id ?? 'reacoes')
   const [loading, setLoading] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -384,20 +385,33 @@ export default function ChatArea(): React.JSX.Element {
                   </div>
                 )}
                 <div className="emoji-panel-section sticker">Figurinhas padrão</div>
-                <div className="sticker-grid">
-                  {DEFAULT_STICKERS.map((s) => (
+                <div className="sticker-categories">
+                  {STICKER_CATEGORIES.map((c) => (
                     <button
-                      key={s.name}
-                      className="sticker-btn"
-                      title={`{{${s.name}}}`}
-                      onClick={() => {
-                        setInput((v) => v + `{{${s.name}}}`)
-                        inputRef.current?.focus()
-                      }}
+                      key={c.id}
+                      className={`sticker-cat${stickerCat === c.id ? ' active' : ''}`}
+                      onClick={() => setStickerCat(c.id)}
                     >
-                      <img className="sticker-img-btn" src={s.url} alt={`{{${s.name}}}`} loading="lazy" />
+                      {c.label}
                     </button>
                   ))}
+                </div>
+                <div className="sticker-grid">
+                  {(STICKER_CATEGORIES.find((c) => c.id === stickerCat)?.stickers ?? []).map(
+                    (s) => (
+                      <button
+                        key={s.name}
+                        className="sticker-btn"
+                        title={`{{${s.name}}}`}
+                        onClick={() => {
+                          setInput((v) => v + `{{${s.name}}}`)
+                          inputRef.current?.focus()
+                        }}
+                      >
+                        <img className="sticker-img-btn" src={s.url} alt={`{{${s.name}}}`} loading="lazy" />
+                      </button>
+                    )
+                  )}
                 </div>
               </>
           </div>

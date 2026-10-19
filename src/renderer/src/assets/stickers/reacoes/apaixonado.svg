@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe0e9"/><stop offset="1" stop-color="#ff9db5"/></linearGradient></defs>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="url(#bg)"/>
+<rect x="3" y="3" width="122" height="122" rx="30" fill="none" stroke="#ffffff" stroke-opacity="0.45" stroke-width="3"/>
+<ellipse cx="44" cy="28" rx="34" ry="19" fill="#ffffff" opacity="0.12"/>
+<circle cx="64" cy="64" r="42" fill="#ffcf9e" stroke="#00000018" stroke-width="2"/>
+<ellipse cx="33" cy="79" rx="9" ry="5" fill="#ff8fa3" opacity=".6"/><ellipse cx="95" cy="79" rx="9" ry="5" fill="#ff8fa3" opacity=".6"/>
+<path d="M47 65.2 C34.6 56.8 39.8 50 47 55.2 C54.2 50 59.4 56.8 47 65.2 Z" fill="#ff3b6b" /><path d="M81 65.2 C68.6 56.8 73.8 50 81 55.2 C88.2 50 93.4 56.8 81 65.2 Z" fill="#ff3b6b" /><path d="M50 84 q14 13 28 0" fill="none" stroke="#3d2a22" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" /><path d="M28 34.3 C17.15 26.95 21.7 21 28 25.55 C34.3 21 38.85 26.95 28 34.3 Z" fill="#ff5c8a" /><path d="M104 101.4 C94.7 95.1 98.6 90 104 93.9 C109.4 90 113.3 95.1 104 101.4 Z" fill="#ff5c8a" /><path d="M101 29.5 C93.25 24.25 96.5 20 101 23.25 C105.5 20 108.75 24.25 101 29.5 Z" fill="#ff9db5" />
+</svg>
