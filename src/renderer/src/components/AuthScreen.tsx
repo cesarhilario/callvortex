@@ -3,19 +3,21 @@ import { useApp } from '../lib/useApp'
 import Logo from './Logo'
 
 export default function AuthScreen(): React.JSX.Element {
-  const { login, register, notify, savedCredentials, storeCredentials, forgetCredentials } = useApp()
-  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const { login, register, resetPassword, notify, savedCredentials, storeCredentials, forgetCredentials } = useApp()
+  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login')
   const [email, setEmail] = useState(savedCredentials?.email ?? '')
   const [username, setUsername] = useState(savedCredentials?.username ?? '')
   const [password, setPassword] = useState(savedCredentials?.password ?? '')
   const [remember, setRemember] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [resetSent, setResetSent] = useState(false)
   const autoLoginTried = useRef(false)
 
   // Login automático: se o usuário marcou "Lembrar de mim" antes, entra sozinho
   useEffect(() => {
     if (autoLoginTried.current) return
+    if (mode === 'forgot') return
     if (!savedCredentials?.email || !savedCredentials.password) return
     autoLoginTried.current = true
     setBusy(true)
@@ -26,12 +28,29 @@ export default function AuthScreen(): React.JSX.Element {
         setError('Não foi possível entrar automaticamente. Confira os dados abaixo.')
       })
       .finally(() => setBusy(false))
-  }, [savedCredentials, login])
+  }, [savedCredentials, login, mode])
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (busy) return
-    if (!email.trim() || !password) {
+    if (!email.trim()) {
+      setError('Preencha o e-mail.')
+      return
+    }
+    if (mode === 'forgot') {
+      setBusy(true)
+      setError(null)
+      try {
+        await resetPassword(email.trim())
+        setResetSent(true)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Algo deu errado.')
+      } finally {
+        setBusy(false)
+      }
+      return
+    }
+    if (!password) {
       setError('Preencha e-mail e senha.')
       return
     }
@@ -61,6 +80,12 @@ export default function AuthScreen(): React.JSX.Element {
     }
   }
 
+  const switchMode = (next: 'login' | 'register' | 'forgot'): void => {
+    setMode(next)
+    setError(null)
+    setResetSent(false)
+  }
+
   return (
     <div className="auth-bg">
       <div className="auth-card">
@@ -71,48 +96,96 @@ export default function AuthScreen(): React.JSX.Element {
         </div>
 
         <div className="auth-tabs">
-          <button className={`auth-tab ${mode === 'login' ? 'active' : ''}`} onClick={() => setMode('login')}>
+          <button className={`auth-tab ${mode === 'login' ? 'active' : ''}`} onClick={() => switchMode('login')}>
             Entrar
           </button>
-          <button className={`auth-tab ${mode === 'register' ? 'active' : ''}`} onClick={() => setMode('register')}>
+          <button className={`auth-tab ${mode === 'register' ? 'active' : ''}`} onClick={() => switchMode('register')}>
             Criar conta
           </button>
         </div>
 
-        <form onSubmit={submit} className="auth-form">
-          {mode === 'register' && (
+        {mode === 'forgot' ? (
+          <form onSubmit={submit} className="auth-form">
+            {resetSent ? (
+              <>
+                <p className="auth-hint">
+                  Se existir uma conta com <strong>{email.trim()}</strong>, enviamos um link para
+                  redefinir a senha. Abra o e-mail, clique no link e defina a nova senha; depois
+                  volte aqui e entre com ela.
+                </p>
+                <button type="button" className="btn-primary btn-block" onClick={() => switchMode('login')}>
+                  Voltar para o login
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="auth-hint">
+                  Informe o e-mail da sua conta e enviaremos um link para você criar uma nova senha.
+                </p>
+                <label>
+                  E-mail
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="voce@exemplo.com"
+                    autoFocus
+                  />
+                </label>
+
+                {error && <div className="auth-error">{error}</div>}
+
+                <button type="submit" className="btn-primary btn-block" disabled={busy}>
+                  {busy ? 'Enviando…' : 'Enviar link de redefinição'}
+                </button>
+                <button type="button" className="auth-link" onClick={() => switchMode('login')}>
+                  Voltar para o login
+                </button>
+              </>
+            )}
+          </form>
+        ) : (
+          <form onSubmit={submit} className="auth-form">
+            {mode === 'register' && (
+              <label>
+                Nome de usuário
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="ex: guilherme"
+                  maxLength={24}
+                  autoFocus
+                />
+              </label>
+            )}
             <label>
-              Nome de usuário
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="ex: guilherme"
-                maxLength={24}
-                autoFocus
-              />
+              E-mail
+              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@exemplo.com" autoFocus={mode === 'login'} />
             </label>
-          )}
-          <label>
-            E-mail
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@exemplo.com" autoFocus={mode === 'login'} />
-          </label>
-          <label>
-            Senha
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" minLength={6} />
-          </label>
+            <label>
+              Senha
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" minLength={6} />
+            </label>
 
-          <label className="auth-remember">
-            <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-            <span>Lembrar de mim (entra automaticamente na próxima vez)</span>
-          </label>
+            <label className="auth-remember">
+              <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+              <span>Lembrar de mim (entra automaticamente na próxima vez)</span>
+            </label>
 
-          {error && <div className="auth-error">{error}</div>}
+            {mode === 'login' && (
+              <button type="button" className="auth-link" onClick={() => switchMode('forgot')}>
+                Esqueci minha senha
+              </button>
+            )}
 
-          <button type="submit" className="btn-primary btn-block" disabled={busy}>
-            {busy ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
-          </button>
-        </form>
+            {error && <div className="auth-error">{error}</div>}
+
+            <button type="submit" className="btn-primary btn-block" disabled={busy}>
+              {busy ? 'Aguarde…' : mode === 'login' ? 'Entrar' : 'Criar conta'}
+            </button>
+          </form>
+        )}
       </div>
     </div>
   )

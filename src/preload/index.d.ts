@@ -34,6 +34,14 @@ export interface Api {
     /** libera o áudio no Firewall do Windows (abre confirmação UAC) */
     fixFirewall: () => Promise<FirewallFixResult>
   }
+  /**
+   * Registra um callback para URLs `callvortex://` abertas pelo sistema
+   * (ex.: link de redefinição de senha do e-mail). Retorna uma função para
+   * cancelar a inscrição.
+   */
+  onDeepLink: (cb: (url: string) => void) => () => void
+  /** URL de deep-link pendente do primeiro lançamento (ou null). */
+  takePendingDeepLink: () => Promise<string | null>
 }
 
 declare global {

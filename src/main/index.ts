@@ -7,7 +7,37 @@ import { autoUpdater } from 'electron-updater'
 
 const execFileAsync = promisify(execFile)
 
-export interface FirewallFixResult {
+// ---------------------------------------------------------------------------
+// Deep-link callvortex:// (redefinição de senha)
+// O e-mail de reset enviado pelo Supabase aponta para `callvortex://reset#...`
+// e o sistema operacional reabre ESTE app com a URL. Guardamos a URL pendente
+// até a janela estar pronta para entregá-la ao renderer.
+// ---------------------------------------------------------------------------
+const PROTOCOL = 'callvortex'
+let mainWindow: BrowserWindow | null = null
+let pendingDeepLink: string | null = null
+
+/** Extrai uma URL callvortex:// dos argumentos de linha de comando. */
+function deepLinkFromArgv(argv: string[]): string | null {
+  return argv.find((a) => a.startsWith(`${PROTOCOL}://`)) ?? null
+}
+
+/** Envia a URL ao renderer; se ainda não há janela, guarda para depois. */
+function deliverDeepLink(url: string): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    if (mainWindow.webContents.isLoading()) {
+      mainWindow.webContents.once('did-finish-load', () => {
+        mainWindow?.webContents.send('auth:deep-link', url)
+      })
+    } else {
+      mainWindow.webContents.send('auth:deep-link', url)
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore()
+    mainWindow.focus()
+  } else {
+    pendingDeepLink = url
+  }
+}export interface FirewallFixResult {
   ok: boolean
   message: string
 }
@@ -184,6 +214,15 @@ function registerCredentialsIpc(): void {
       return false
     }
   })
+  // Entrega (e limpa) uma URL de deep-link pendente do primeiro lançamento.
+  // O renderer chama isto ao montar para não perder o link caso o evento
+  // 'auth:deep-link' tenha sido enviado antes do listener ser registrado.
+  ipcMain.handle('auth:take-pending-deep-link', (e): string | null => {
+    if (!isTrustedSender(e)) return null
+    const url = pendingDeepLink
+    pendingDeepLink = null
+    return url
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -330,7 +369,7 @@ function registerScreenShareIpc(): void {
 }
 
 function createWindow(): void {
-  const mainWindow = new BrowserWindow({
+  mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     minWidth: 720,
@@ -349,13 +388,18 @@ function createWindow(): void {
       nodeIntegration: false
     }
   })
+  const win = mainWindow
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow.show()
+  win.on('ready-to-show', () => {
+    win.show()
+  })
+
+  win.on('closed', () => {
+    if (mainWindow === win) mainWindow = null
   })
 
   // Diagnóstico: se o renderer morrer (tela em branco), registra o motivo no terminal
-  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+  win.webContents.on('render-process-gone', (_event, details) => {
     console.error('[main] Renderer process gone ->', details.reason, '| exitCode:', details.exitCode)
   })
 
@@ -409,17 +453,51 @@ function createWindow(): void {
   }
 }
 
-app.whenReady().then(() => {
-  registerCredentialsIpc()
-  registerScreenShareIpc()
-  registerVoiceIpc()
-  registerUpdater()
-  createWindow()
+// Registro do protocolo callvortex:// (deep-link de redefinição de senha).
+// Em dev no Linux/Windows, o registro funciona via app.setAsDefaultProtocolClient;
+// no macOS o SO usa o Info.plist (feito pelo electron-builder em produção).
+if (process.defaultApp && process.argv.length >= 2) {
+  // Dev: passa o caminho do app como argumento para o registro funcionar
+  app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [join(process.cwd(), process.argv[1])])
+} else {
+  app.setAsDefaultProtocolClient(PROTOCOL)
+}
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+// Instância única: um segundo lançamento (ex.: clique no deep-link com o app
+// já aberto) entrega a URL para a instância existente em vez de abrir outra.
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const url = deepLinkFromArgv(argv)
+    if (url) deliverDeepLink(url)
   })
-})
+
+  // macOS: deep-links chegam por este evento
+  app.on('open-url', (event, url) => {
+    event.preventDefault()
+    if (url.startsWith(`${PROTOCOL}://`)) deliverDeepLink(url)
+  })
+
+  app.whenReady().then(() => {
+    registerCredentialsIpc()
+    registerScreenShareIpc()
+    registerVoiceIpc()
+    registerUpdater()
+
+    // Deep-link no primeiro lançamento (Linux/Windows via argv). Definido
+    // ANTES de criar a janela para o 'ready-to-show' já encontrá-lo.
+    const initial = deepLinkFromArgv(process.argv)
+    if (initial) pendingDeepLink = initial
+
+    createWindow()
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+  })
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

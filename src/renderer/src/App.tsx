@@ -1,6 +1,7 @@
 import { AppProvider, useApp } from './lib/useApp'
 import { supabaseReady } from './lib/supabase'
 import AuthScreen from './components/AuthScreen'
+import ResetPasswordScreen from './components/ResetPasswordScreen'
 import ServerRail from './components/ServerRail'
 import ChannelSidebar from './components/ChannelSidebar'
 import ChatArea from './components/ChatArea'
@@ -80,7 +81,10 @@ function MainLayout(): React.JSX.Element {
 }
 
 function Shell(): React.JSX.Element {
-  const { authState } = useApp()
+  const { authState, recoveryMode } = useApp()
+  // Redefinição de senha tem prioridade: a sessão de recuperação "entra" o
+  // usuário, mas ele deve primeiro definir a nova senha.
+  if (recoveryMode) return <ResetPasswordScreen />
   if (authState === 'loading') {
     return (
       <div className="loading-screen">

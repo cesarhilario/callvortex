@@ -46,6 +46,8 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   const [modal, setModal] = useState<ModalType>(null)
   const [renamingChannel, setRenamingChannel] = useState<Channel | null>(null)
   const [notice, setNotice] = useState<Notice | null>(null)
+  // true quando o app foi aberto por um link de redefinição de senha válido
+  const [recoveryMode, setRecoveryMode] = useState(false)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   // presença em cada canal de voz (fora da sala) + atividade das salas
   const [voicePresence, setVoicePresence] = useState<Record<string, VoicePeerInfo[]>>({})
@@ -174,6 +176,30 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     return () => sub.subscription.unsubscribe()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ------------------------------------------------------------
+  // Deep-link callvortex://reset (redefinição de senha)
+  // O clique no link do e-mail reabre o app com os tokens no fragmento.
+  // Aplicamos a sessão temporária e entramos no modo "definir nova senha".
+  // ------------------------------------------------------------
+  const handleDeepLink = useCallback(async (url: string) => {
+    if (!url.startsWith('callvortex://')) return
+    const ok = await api.applyRecoveryLink(url)
+    if (ok) setRecoveryMode(true)
+  }, [])
+
+  useEffect(() => {
+    if (!window.api?.onDeepLink) return
+    // Link do primeiro lançamento (pode ter chegado antes deste listener)
+    void window.api.takePendingDeepLink().then((url) => {
+      if (url) void handleDeepLink(url)
+    })
+    // Links recebidos com o app já aberto
+    const off = window.api.onDeepLink((url) => {
+      void handleDeepLink(url)
+    })
+    return off
+  }, [handleDeepLink])
 
   // ------------------------------------------------------------
   // Carregamento inicial ao entrar
@@ -383,6 +409,23 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     const p = await api.signUp(email, password, username)
     setProfile(p)
     setAuthState('signedIn')
+  }, [])
+
+  const resetPassword = useCallback(async (email: string) => {
+    await api.sendPasswordReset(email.trim())
+  }, [])
+
+  const updatePassword = useCallback(async (newPassword: string) => {
+    await api.updatePassword(newPassword)
+    // Sai da sessão de recuperação: o usuário volta ao login e entra com a
+    // senha nova (evita ficar "logado" por um link de e-mail).
+    const supabase = getSupabase()
+    await supabase.auth.signOut()
+    setRecoveryMode(false)
+  }, [])
+
+  const clearRecovery = useCallback(() => {
+    setRecoveryMode(false)
   }, [])
 
   const logout = useCallback(async () => {
@@ -753,6 +796,10 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       notice,
       login,
       register,
+      resetPassword,
+      updatePassword,
+      recoveryMode,
+      clearRecovery,
       logout,
       savedCredentials,
       storeCredentials,
@@ -810,6 +857,10 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       notice,
       login,
       register,
+      resetPassword,
+      updatePassword,
+      recoveryMode,
+      clearRecovery,
       logout,
       savedCredentials,
       storeCredentials,

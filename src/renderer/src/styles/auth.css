@@ -119,6 +119,33 @@
   cursor: pointer;
 }
 
+.auth-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.auth-hint strong {
+  color: var(--text-normal);
+}
+
+.auth-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: -6px 0 16px;
+  align-self: flex-start;
+  color: var(--blurple);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.auth-link:hover {
+  text-decoration: underline;
+}
+
 .setup-steps {
   list-style: decimal;
   padding-left: 20px;

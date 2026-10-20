@@ -27,6 +27,13 @@ export interface AppContextValue {
   notice: Notice | null
   login: (email: string, password: string) => Promise<void>
   register: (email: string, password: string, username: string) => Promise<void>
+  resetPassword: (email: string) => Promise<void>
+  /** define a nova senha (sessão de recuperação ativa) e encerra a sessão */
+  updatePassword: (newPassword: string) => Promise<void>
+  /** true quando o app foi aberto por um link de redefinição válido */
+  recoveryMode: boolean
+  /** sai do modo de recuperação sem alterar a senha */
+  clearRecovery: () => void
   logout: () => Promise<void>
   savedCredentials: SavedCredentials | null
   storeCredentials: (creds: SavedCredentials) => Promise<void>

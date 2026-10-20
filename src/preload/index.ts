@@ -39,7 +39,16 @@ const api = {
   // Voz — correção do Firewall do Windows com confirmação do sistema (UAC)
   voice: {
     fixFirewall: (): Promise<FirewallFixResult> => ipcRenderer.invoke('voice:fix-firewall')
-  }
+  },
+  // Deep-link (redefinição de senha): recebe URLs callvortex:// abertas pelo
+  // sistema (clique no link do e-mail) e as repassa ao renderer.
+  onDeepLink: (cb: (url: string) => void): (() => void) => {
+    const listener = (_: unknown, url: string): void => cb(url)
+    ipcRenderer.on('auth:deep-link', listener)
+    return () => ipcRenderer.removeListener('auth:deep-link', listener)
+  },
+  /** URL de deep-link pendente do primeiro lançamento (ou null). */
+  takePendingDeepLink: (): Promise<string | null> => ipcRenderer.invoke('auth:take-pending-deep-link')
 }
 
 contextBridge.exposeInMainWorld('api', api)

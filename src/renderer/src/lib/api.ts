@@ -73,6 +73,73 @@ export async function signIn(email: string, password: string): Promise<void> {
   }
 }
 
+/**
+ * Envia o e-mail de redefinição de senha (Supabase Auth).
+ * O link do e-mail leva o usuário a definir uma nova senha; depois ele entra
+ * no app normalmente com a senha nova. Não revelamos se o e-mail existe ou
+ * não (evita enumeração de contas): a UI mostra a mesma mensagem de sucesso.
+ *
+ * Não passamos `redirectTo` porque o app roda em Electron (file://) e o
+ * usuário abre o link no navegador — o link usa a URL de redirecionamento
+ * configurada no projeto Supabase (Authentication → URL Configuration).
+ */
+export async function sendPasswordReset(email: string): Promise<void> {
+  const supabase = getSupabase()
+  const redirect = import.meta.env.VITE_PASSWORD_RESET_REDIRECT
+  const { error } = await supabase.auth.resetPasswordForEmail(
+    email,
+    redirect ? { redirectTo: redirect } : { redirectTo: 'callvortex://reset' }
+  )
+  if (error) {
+    throw friendlyError('Não foi possível enviar o e-mail de redefinição', error)
+  }
+}
+
+/**
+ * Consome a URL de deep-link (`callvortex://reset#access_token=...&type=recovery`),
+ * estabelece a sessão temporária de recuperação e retorna true se for válida.
+ * O Supabase, ao verificar o token, redireciona para o app com os tokens no
+ * fragmento (#) — aqui os aplicamos para permitir trocar a senha.
+ */
+export async function applyRecoveryLink(url: string): Promise<boolean> {
+  try {
+    const parsed = new URL(url)
+    const params = new URLSearchParams(parsed.hash.startsWith('#') ? parsed.hash.slice(1) : parsed.hash)
+    // Também aceita tokens na query string (alguns SOs normalizam a URL)
+    parsed.searchParams.forEach((v, k) => {
+      if (!params.has(k)) params.set(k, v)
+    })
+    const accessToken = params.get('access_token')
+    const refreshToken = params.get('refresh_token')
+    const type = params.get('type')
+    if (type && type !== 'recovery') return false
+    if (!accessToken || !refreshToken) return false
+    const supabase = getSupabase()
+    const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+    if (error) {
+      console.error('[api] applyRecoveryLink setSession ->', error.message)
+      return false
+    }
+    return true
+  } catch (e) {
+    console.error('[api] applyRecoveryLink ->', e)
+    return false
+  }
+}
+
+/** Define a nova senha do usuário autenticado (sessão de recuperação ativa). */
+export async function updatePassword(newPassword: string): Promise<void> {
+  const supabase = getSupabase()
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) {
+    const msg = error.message.toLowerCase()
+    if (msg.includes('at least') || msg.includes('password')) {
+      throw new Error('A nova senha não atende aos requisitos (mínimo de 6 caracteres).')
+    }
+    throw friendlyError('Não foi possível salvar a nova senha', error)
+  }
+}
+
 export async function fetchProfile(userId: string): Promise<Profile> {
   const supabase = getSupabase()
   const { data, error } = await supabase
