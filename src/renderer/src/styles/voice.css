@@ -53,11 +53,13 @@
 /* barra de ações rápidas (câmera, tela, atividades, sinal) */
 .voice-quick-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .voice-quick-action {
   flex: 1;
   height: 30px;
+  min-width: 26px;
   border-radius: 8px;
   background: var(--bg-primary);
   color: var(--text-muted);
@@ -83,11 +85,13 @@
 /* controles de voz (mudo, surdo, sair) */
 .voice-connected-controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 .voice-connected-controls .voice-control {
   flex: 1;
   height: 32px;
+  min-width: 26px;
   border-radius: 8px;
   background: var(--bg-primary);
   color: var(--text-normal);
@@ -350,7 +354,7 @@
 .voice-controls-dock {
   flex-shrink: 0;
   display: flex;
-  align-items: center;
+  flex-wrap: wrap; /* em janelas muito baixas/estreitas, quebra em fileiras */
   justify-content: center;
   gap: 12px;
   padding-top: 12px;
@@ -437,13 +441,14 @@
 }
 .mic-picker-select-row {
   display: flex;
+  flex-wrap: wrap; /* sidebar de 170px: o botão de teste desce p/ a 2ª linha */
   gap: 6px;
   margin-top: 8px;
 }
 .mic-select-wrap {
   position: relative;
   flex: 1;
-  min-width: 0;
+  min-width: 120px;
 }
 .mic-picker-select {
   width: 100%;

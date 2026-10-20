@@ -1,6 +1,6 @@
 {
   "name": "callvortex",
-  "version": "0.2.0",
+  "version": "0.2.2",
   "description": "Chat por texto e voz para conversar com amigos",
   "main": "out/main/index.js",
   "scripts": {
@@ -9,6 +9,7 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "check:styles": "node scripts/check-styles.mjs",
+    "test:e2e": "node scripts/test-e2e-api.mjs",
     "dist": "electron-vite build && electron-builder",
     "prepare": "husky"
   },

@@ -4,6 +4,11 @@
 .chat {
   flex: 1;
   min-width: 0;
+  /* CRÍTICO: sem isso, um item de flex-coluna não encolhe abaixo da altura
+     do conteúdo — com muitas mensagens o chat empurra o campo de texto para
+     fora da janela (o app-main corta com overflow:hidden). Quem rola é a
+     caixa de mensagens, não o chat inteiro. */
+  min-height: 0;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -36,6 +41,7 @@
 
 .chat-messages {
   flex: 1;
+  min-height: 0; /* permite encolher e rolar em vez de engolir o input */
   overflow-y: auto;
   padding: 16px 16px 8px;
 }
@@ -103,6 +109,8 @@
   font-size: 15px;
   line-height: 1.45;
   word-wrap: break-word;
+  /* URLs/strings longas sem espaço quebram em vez de empurrar a rolagem horizontal */
+  overflow-wrap: anywhere;
   white-space: pre-wrap;
 }
 .message-row.grouped .message-content {
@@ -151,6 +159,7 @@
 }
 .chat-input {
   flex: 1;
+  min-width: 0; /* campo nunca empurra os botões para fora do box */
   background: transparent;
   border: none;
   outline: none;
@@ -171,6 +180,12 @@
   position: absolute;
   bottom: calc(100% + 8px);
   left: 16px;
+  /* elástico: cabe na área central do app — nunca vaza da janela,
+     mesmo redimensionando bem abaixo do minWidth (720px) */
+  width: min(430px, calc(100% - 24px));
+  /* janelas baixas: rola em vez de cortar o topo no meio do grid */
+  max-height: min(66vh, 520px);
+  overflow-y: auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;

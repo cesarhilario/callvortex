@@ -131,26 +131,25 @@ export default function ScreenShareStage({ members }: { members: VoicePeerInfo[]
           </button>
         )}
         {/* controles INDEPENDENTES de áudio — só fazem sentido para quem
-            compartilha: o áudio do sistema e a própria voz são fontes
-            distintas, cada uma com seu próprio on/off */}
-        {mine && (
+            compartilha E quando o sistema consegue capturar o áudio da tela.
+            No Linux o Electron não oferece loopback de áudio do sistema
+            (somente no Windows): sem trilha de áudio na captura, o botão nem
+            aparece — evita um "Indisponível" sempre morto na frente do usuário. */}
+        {mine && systemAudioAvailable && (
           <div className="ss-audio-tools" role="group" aria-label="Áudio do compartilhamento">
             <button
               className={`ss-audio-btn ${systemAudioEnabled ? 'on' : 'off'}`}
               aria-pressed={systemAudioEnabled}
-              disabled={!systemAudioAvailable}
               title={
-                !systemAudioAvailable
-                  ? 'Áudio da tela indisponível nesta plataforma (a captura só traz vídeo). O microfone continua funcionando normalmente.'
-                  : systemAudioEnabled
-                    ? 'Áudio da tela: Ativo — clique para transmitir apenas o vídeo (o microfone não é afetado)'
-                    : 'Áudio da tela: Mutado — clique para ativar (o microfone não é afetado)'
+                systemAudioEnabled
+                  ? 'Áudio da tela: Ativo — clique para transmitir apenas o vídeo (o microfone não é afetado)'
+                  : 'Áudio da tela: Mutado — clique para ativar (o microfone não é afetado)'
               }
               onClick={() => setSystemAudioEnabled(!systemAudioEnabled)}
             >
               {systemAudioEnabled ? <VolumeHighIcon size={16} /> : <VolumeMuteIcon size={16} />}
               <span className="ss-audio-name">Áudio da tela:</span>
-              <span className="ss-audio-state">{!systemAudioAvailable ? 'Indisponível' : systemAudioEnabled ? 'Ativo' : 'Muted'}</span>
+              <span className="ss-audio-state">{systemAudioEnabled ? 'Ativo' : 'Mutado'}</span>
             </button>
           </div>
         )}

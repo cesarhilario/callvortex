@@ -46,6 +46,35 @@
     left: 80px;
     max-width: calc(100vw - 96px);
   }
+  /* modais mais compactos em janelas de 720–800px (minWidth do Electron) */
+  .modal-card {
+    padding: 16px;
+  }
+  .auth-card {
+    padding: 24px 16px;
+  }
+  /* controles de voz cabem sempre: menos espaçamento */
+  .voice-connected-controls,
+  .voice-quick-actions {
+    gap: 4px;
+  }
+  .voice-quick-action,
+  .voice-connected-controls .voice-control {
+    height: 30px;
+  }
+  /* popups de convite colados menos no canto */
+  .voice-invite-popups {
+    right: 8px;
+    bottom: 8px;
+  }
+  /* cabeçalho do palco compacto: ferramentas quebram em 2 linhas sem empurrar o título */
+  .ss-stage-header {
+    gap: 6px;
+    padding: 6px 8px;
+  }
+  .ss-audio-name {
+    display: none;
+  }
 }
 
 /* janelas baixas: modais e telas centrais rolam em vez de cortar */

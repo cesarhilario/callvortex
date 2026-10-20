@@ -87,6 +87,8 @@
 }
 .voice-invite-popup {
   width: 320px;
+  /* toast flutuante nunca sai da janela em telas pequenas */
+  max-width: calc(100vw - 32px);
   background: var(--bg-floating);
   border-radius: 10px;
   padding: 12px 14px;

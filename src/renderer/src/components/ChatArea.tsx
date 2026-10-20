@@ -78,6 +78,12 @@ export default function ChatArea(): React.JSX.Element {
   const screenKey =
     screen?.type === 'server' ? `s:${screen.channelId}` : screen?.type === 'dm' ? `d:${screen.threadId ?? ''}` : 'none'
 
+  // fecha o painel de emoji/figurinhas a cada troca de canal/DM/tela —
+  // sem isso ele "cano aberto" flutuando na nova conversa
+  useEffect(() => {
+    setEmojiOpen(false)
+  }, [screenKey])
+
   // ------------------------------------------------------------
   // Carregar mensagens + assinar realtime
   // ------------------------------------------------------------

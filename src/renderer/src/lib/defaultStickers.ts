@@ -15,14 +15,34 @@ const CATEGORY_LABELS: Record<string, string> = {
   comida: 'Comida',
   natureza: 'Natureza',
   objetos: 'Objetos',
-  simbolos: 'Símbolos'
+  simbolos: 'Símbolos',
+  brasil: 'Brasil',
+  natal: 'Natal',
+  capivara: 'Capivara',
+  selvagens: 'Selvagens',
+  planeta: 'Planeta',
+  frutas: 'Frutas',
+  fantasia: 'Fantasia'
 }
 
-const files = import.meta.glob('../assets/stickers/*/*.svg', {
+const svgFiles = import.meta.glob('../assets/stickers/*/*.svg', {
   eager: true,
   query: '?url',
   import: 'default'
 }) as Record<string, string>
+
+const pngFiles = import.meta.glob('../assets/stickers/*/*.png', {
+  eager: true,
+  query: '?url',
+  import: 'default'
+}) as Record<string, string>
+
+const files: Record<string, string> = { ...svgFiles, ...pngFiles }
+
+/** Extrai o nome da figurinha do caminho do arquivo (sem extensão). */
+function stickerName(path: string): string {
+  return path.replace(/^.*\//, '').replace(/\.(svg|png)$/, '')
+}
 
 /** Figurinhas padrão embutidas no app (não dependem do banco), separadas por categoria. */
 export const STICKER_CATEGORIES: StickerCategory[] = Object.entries(CATEGORY_LABELS).map(
@@ -31,7 +51,7 @@ export const STICKER_CATEGORIES: StickerCategory[] = Object.entries(CATEGORY_LAB
     label,
     stickers: Object.entries(files)
       .filter(([path]) => path.includes(`/stickers/${id}/`))
-      .map(([path, url]) => ({ name: path.split('/').pop()!.replace(/\.svg$/, ''), url }))
+      .map(([path, url]) => ({ name: stickerName(path), url }))
       .sort((a, b) => a.name.localeCompare(b.name))
   })
 )
