@@ -42,6 +42,7 @@
 }
 .sidebar-scroll {
   flex: 1;
+  min-height: 0; /* encolhe e rola em vez de empurrar o user-panel para fora */
   overflow-y: auto;
   padding: 12px 8px;
 }
