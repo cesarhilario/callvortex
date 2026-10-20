@@ -457,8 +457,10 @@ function ManageStickersModal({ onClose }: { onClose: () => void }): React.JSX.El
   const selectedScope: 'user' | 'server' = scope === 'server' && isOwner && activeServerId ? 'server' : 'user'
 
   const pickFile = (): void => {
-    const stickerName = name.trim() || undefined
-    if (stickerName !== undefined && !/^[\w+-]+$/.test(stickerName)) {
+    // valida/aplica o MESMO saneamento do onFile (espaços → '-'), em vez de
+    // barrar nomes com espaço antes mesmo de abrir o seletor de arquivo.
+    const stickerName = name.trim().toLowerCase().replace(/\s+/g, '-')
+    if (stickerName && !/^[\w+-]+$/.test(stickerName)) {
       setError('Nome inválido: use apenas letras, números, _ ou - (ex: risada).')
       return
     }
@@ -487,11 +489,15 @@ function ManageStickersModal({ onClose }: { onClose: () => void }): React.JSX.El
       return
     }
     setBusy(true)
+    setError(null)
     const ok = await addSticker(stickerName, file, selectedScope === 'server' && activeServerId ? activeServerId : 'user')
     setBusy(false)
     if (ok) {
       setName('')
       setError(null)
+    } else {
+      // mostra a falha DENTRO do modal (o toast de 5s é fácil de perder)
+      setError('Não foi possível enviar a figurinha. Veja o aviso acima para o motivo.')
     }
   }
 

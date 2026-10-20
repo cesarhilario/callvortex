@@ -352,18 +352,21 @@ video::-webkit-media-picture-in-picture-button {
 }
 
 .ss-audio-btn.off {
-  color: var(--text-secondary);
-  background: var(--bg-primary);
+  /* estado "Mutado" — clicável, não desabilitado: contraste legível em vez
+     de cinza-sobre-cinza (que parecia um botão morto) */
+  color: #fff;
+  background: rgba(237, 66, 69, 0.85);
 }
 
 .ss-audio-btn:hover:not(:disabled) {
-  filter: brightness(1.05);
+  filter: brightness(1.12);
   color: #fff;
 }
 
 .ss-audio-name {
-  color: var(--text-secondary);
+  color: inherit;
   font-weight: 500;
+  opacity: 0.85;
 }
 
 .ss-audio-btn.on .ss-audio-name,

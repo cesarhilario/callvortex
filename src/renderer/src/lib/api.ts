@@ -448,6 +448,18 @@ export async function fetchStickers(serverId: string | null): Promise<Sticker[]>
   return (data as Sticker[]) ?? []
 }
 
+/** Extensão canônica a partir do MIME (não do filename — arquivos sem ponto
+ *  ou com nome estranho geravam extensão inválida e o Storage recusava). */
+function extFromMime(mime: string): string | null {
+  const map: Record<string, string> = {
+    'image/png': 'png',
+    'image/jpeg': 'jpg',
+    'image/webp': 'webp',
+    'image/gif': 'gif'
+  }
+  return map[mime.toLowerCase()] ?? null
+}
+
 /**
  * Envia a figurinha para o Storage e registra na tabela.
  * @param scope null = pessoal ('user/<meuId>/…'); string = servidor ('server/<id>/…')
@@ -459,7 +471,12 @@ export async function addSticker(scope: 'user' | string, name: string, file: Fil
   } = await supabase.auth.getUser()
   if (!user) throw new Error('Você precisa estar logado.')
 
-  const ext = (file.name.split('.').pop() || 'png').toLowerCase()
+  // extensão canônica via MIME; tipos fora da lista são recusados ANTES de
+  // enviar (o Storage só aceita png/jpg/jpeg/webp/gif por política).
+  const ext = extFromMime(file.type)
+  if (!ext) {
+    throw new Error('Formato não suportado: use PNG, JPG, WebP ou GIF.')
+  }
   const safeName = name.toLowerCase()
   const isServer = scope !== 'user'
   const insert = isServer
@@ -470,14 +487,47 @@ export async function addSticker(scope: 'user' | string, name: string, file: Fil
     : `stickers/user/${user.id}/${crypto.randomUUID()}.${ext}`
 
   const { error: upErr } = await supabase.storage.from('stickers').upload(path, file, { upsert: false, contentType: file.type })
-  if (upErr) throw err('Erro ao enviar a figurinha', upErr)
+  if (upErr) throw stickerUploadError(upErr)
   const { data } = supabase.storage.from('stickers').getPublicUrl(path)
 
   const { error: insertError } = await supabase.from('stickers').insert({ ...insert, url: data.publicUrl })
   if (insertError) {
     await supabase.storage.from('stickers').remove([path])
-    throw err('Erro ao salvar a figurinha', insertError)
+    throw stickerInsertError(insertError)
   }
+}
+
+/** Mensagem clara para falhas de ENVIO no Storage (bucket/policy/extensão). */
+function stickerUploadError(error: { message?: string }): Error {
+  const detail = String(error.message ?? '')
+  if (/row-level security|permission denied|new row violates/i.test(detail)) {
+    console.error('[api] upload figurinha ->', detail)
+    return new Error(
+      'Sem permissão para enviar aqui. Se as figurinhas foram recém-criadas, ' +
+        'rode a migração supabase/migrations/20261019000000_stickers.sql no painel do Supabase.'
+    )
+  }
+  if (/not found|bucket/i.test(detail)) {
+    return new Error('Bucket "stickers" não existe. Rode a migração de figurinhas no painel do Supabase.')
+  }
+  return new Error('Erro ao enviar a figurinha.')
+}
+
+/** Mensagem clara para falhas de REGISTRO na tabela (duplicado/check/RLS). */
+function stickerInsertError(error: { message?: string }): Error {
+  const detail = String(error.message ?? '')
+  if (/duplicate key|violates unique constraint/i.test(detail)) {
+    console.error('[api] insert figurinha (duplicada) ->', detail)
+    return new Error('Você já tem uma figurinha com esse nome. Escolha outro.')
+  }
+  if (/stickers_name_check/i.test(detail)) {
+    return new Error('Nome inválido: use apenas letras, números, _ ou - (máx. 32).')
+  }
+  if (/row-level security|permission denied|pgrst|new row violates/i.test(detail)) {
+    console.error('[api] insert figurinha ->', detail)
+    return new Error('Não foi possível salvar a figurinha. Verifique se a migração de figurinhas foi aplicada.')
+  }
+  return new Error('Erro ao salvar a figurinha.')
 }
 
 export async function removeSticker(stickerId: string): Promise<void> {

@@ -1366,6 +1366,14 @@ export class VoiceManager {
       this.detachScreenAudio()
       return
     }
+    // registra a trilha ANTES da mixagem: a disponibilidade do botão vem
+    // dela (uma trilha capturada = áudio do sistema existe), mesmo que o
+    // mixer demore a subir. Assim o botão nunca "some" por uma falha transitória.
+    if (this.screenAudioTrack !== desktopTrack) {
+      this.screenAudioTrack?.removeEventListener('ended', this.onScreenAudioTrackEnded)
+      this.screenAudioTrack = desktopTrack
+      desktopTrack.addEventListener('ended', this.onScreenAudioTrackEnded)
+    }
     const micStream = this.processedStream ?? this.localStream
     // sem microfone vivo não há o que mixar (e sem voz a sala não serve)
     if (!micStream || micStream.getAudioTracks().length === 0) {
@@ -1383,17 +1391,13 @@ export class VoiceManager {
         this.screenMix.setMicActive(!this.localMuted && !this.deafened)
         this.screenMix.setDesktopActive(this.screenDesktopAudioEnabled)
       }
-      if (this.screenAudioTrack !== desktopTrack) {
-        this.screenAudioTrack?.removeEventListener('ended', this.onScreenAudioTrackEnded)
-        this.screenAudioTrack = desktopTrack
-        desktopTrack.addEventListener('ended', this.onScreenAudioTrackEnded)
-      }
       this.applySendTrack()
       this.onScreenAudioStateChange?.(true, this.screenDesktopAudioEnabled)
       vdbg('mixagem de áudio do sistema ativa')
     } catch {
-      // AudioContext indisponível: compartilha só com a voz (sem áudio do sistema)
-      this.detachScreenAudio()
+      // AudioContext indisponível: compartilha só com a voz (sem áudio do
+      // sistema). A trilha continua registrada para permitir retry no toggle.
+      this.screenMix = null
       this.onError?.('Não foi possível capturar o áudio do sistema — compartilhando somente o vídeo.')
     }
   }
@@ -1426,16 +1430,27 @@ export class VoiceManager {
    * Liga/desliga o áudio do sistema DURANTE o compartilhamento. Só mexe no
    * ganho da mixagem: a conexão WebRTC não é tocada e o microfone segue
    * funcionando normalmente (cadeia própria, independente do desktop).
+   *
+   * Se o mixer não existe mais mas a trilha de áudio do sistema continua
+   * viva (ex.: falha anterior do AudioContext), recria o mixer agora — o
+   * toggle nunca fica permanentemente morto. A disponibilidade reportada
+   * vem da TRILHA capturada, não do mixer, para o botão não "travar".
    */
   setScreenDesktopAudio(enabled: boolean): void {
     this.screenDesktopAudioEnabled = enabled
     writeRaw(SCREEN_AUDIO_ENABLED_KEY, enabled ? '1' : '0')
+    const trackAlive = this.screenAudioTrack !== null && this.screenAudioTrack.readyState === 'live'
+    if (!this.screenMix && trackAlive) {
+      // mixer sumiu mas a trilha segue: tenta religar a mixagem agora
+      void this.attachScreenAudio(this.screenAudioTrack)
+    }
     this.screenMix?.setDesktopActive(enabled)
-    this.onScreenAudioStateChange?.(this.screenMix !== null, enabled)
+    this.onScreenAudioStateChange?.(trackAlive, trackAlive && enabled)
   }
 
-  get isScreenDesktopAudioEnabled(): boolean {
-    return this.screenDesktopAudioEnabled
+  /** Áudio do sistema disponível? (trilha de loopback capturada e viva) */
+  get isScreenDesktopAudioAvailable(): boolean {
+    return this.screenAudioTrack !== null && this.screenAudioTrack.readyState === 'live'
   }
 
   /**

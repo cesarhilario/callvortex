@@ -67,7 +67,15 @@ export class ScreenShareManager {
       if (stream === null) {
         const wasSharer = this.state.sharerId === peerId
         this.pendingRemoteScreens.delete(peerId)
-        if (wasSharer) this.patch({ remoteStream: null })
+        if (wasSharer) {
+          // A trilha remota do compartilhador acabou (ele saiu, caiu ou parou).
+          // Só limpar remoteStream deixaria sharerId obsoleto = amigo travado
+          // achando que ainda compartilha (botão bloqueado até sair/voltar).
+          // Reconcilia com o banco: se a reserva dele já não existe, limpa
+          // sharerId e desbloqueia os participantes na hora.
+          this.patch({ remoteStream: null, connectionState: null })
+          void this.reconcileActiveSharer(peerId)
+        }
         return
       }
       if (this.state.sharerId && this.state.sharerId !== peerId) {
@@ -181,7 +189,17 @@ export class ScreenShareManager {
   }
 
   leaveChannel(): void {
+    // stop() captura channelId de forma síncrona e limpa sharerId + libera a
+    // reserva no banco. Mesmo que o status já seja 'idle' (estado obsoleto),
+    // garantimos a liberação da reserva para desbloquear os demais.
+    const channelId = this.channelId
+    const wasMine = this.state.sharerId !== null && this.state.sharerId === this.myId
     void this.stop().catch(() => undefined)
+    if (channelId && wasMine) {
+      // rede de segurança: se o stop() cedo retornou por status obsoleto,
+      // ainda assim solta a reserva (idempotente; RLS só apaga a minha linha)
+      void releaseReservation(channelId)
+    }
     this.signaling.onSharerChange = null
     void this.signaling.unsubscribe()
     void this.signaling.unwatchActiveShare()
@@ -214,8 +232,18 @@ export class ScreenShareManager {
       return false
     }
     if (this.state.sharerId && this.state.sharerId !== this.myId) {
-      this.fail('Alguém já está compartilhando a tela neste canal.')
-      return false
+      // Rede de segurança: o estado local pode estar obsoleto (ex.: quem
+      // compartilhou saiu e o evento DELETE não chegou). Confere o banco
+      // antes de bloquear — se lá não há reserva, limpa e segue.
+      const active = await this.signaling.fetchActiveSharer(channelId).catch(() => this.state.sharerId)
+      if (this.destroyed) return false
+      if (active !== this.state.sharerId) {
+        dbg('beginStart: estado obsoleto (sharerId local ≠ banco) — limpando')
+        this.patch({ sharerId: null, remoteStream: null, connectionState: null })
+      } else {
+        this.fail('Alguém já está compartilhando a tela neste canal.')
+        return false
+      }
     }
 
     const token = ++this.opToken
@@ -369,7 +397,13 @@ export class ScreenShareManager {
     this.stopHeartbeat()
     this.clearEndedHandler()
     this.clearStartGuard()
-    this.patch({ status: 'idle', localStream: null })
+    // limpa TUDO de uma vez (inclusive sharerId): o palco/ícone somem na hora
+    // e ninguém fica bloqueado achando que ainda estou compartilhando.
+    this.patch({ status: 'idle', localStream: null, sharerId: null, remoteStream: null, connectionState: null })
+
+    // libera a reserva ANTES da renegociação: outros participantes podem
+    // iniciar na hora, sem esperar a descoberta SDP (com timeout p/ nunca travar)
+    if (channelId) await releaseReservation(channelId)
 
     if (localStream && this.voice) {
       // remove a trilha dos PCs e renegocia (m-line de vídeo some do SDP)
@@ -385,7 +419,6 @@ export class ScreenShareManager {
       localStream.getTracks().forEach((t) => t.stop())
     }
 
-    if (channelId) await releaseReservation(channelId)
     if (token === this.opToken) this.resetToIdle()
   }
 
@@ -483,6 +516,29 @@ export class ScreenShareManager {
     this.patch({ sharerId: null, remoteStream: null, connectionState: null })
   }
 
+  /**
+   * Reconcilia o compartilhador local com o banco quando a trilha remota de
+   * um par termina. Se o banco já não tem reserva para esse par (ele saiu,
+   * parou ou o app morreu), limpa sharerId — desbloqueia os participantes
+   * sem exigir que saiam e voltem da sala. Se ainda há reserva, mantém
+   * (pode ser só um soluço de rede; o heartbeat cuida do resto).
+   */
+  private async reconcileActiveSharer(gonePeerId: string): Promise<void> {
+    const channelId = this.channelId
+    if (!channelId) return
+    const active = await this.signaling.fetchActiveSharer(channelId)
+    if (this.channelId !== channelId || this.destroyed) return
+    // sou eu quem compartilha agora? nada a fazer
+    if (this.state.status === 'sharing' && this.state.localStream) return
+    // o banco ainda aponta esse par como compartilhador → mantém (rede oscilou)
+    if (active === gonePeerId) return
+    // reserva sumiu (null) ou mudou de dono → limpa o estado obsoleto
+    if (this.state.sharerId === gonePeerId) {
+      dbg('reconcile: compartilhador', gonePeerId.slice(0, 8), 'não está mais no banco — limpando')
+      this.patch({ sharerId: null, remoteStream: null, connectionState: null })
+    }
+  }
+
   private resetToIdle(): void {
     this.patch({ ...INITIAL_SCREEN_SHARE_STATE })
   }
@@ -492,14 +548,18 @@ export class ScreenShareManager {
   }
 }
 
-/** Libera a reserva no banco (RLS garante que só apaga a MINHA linha). */
+/** Libera a reserva no banco (RLS garante que só apaga a MINHA linha).
+ *  Com timeout: um RPC pendurado nunca deve prender o stop()/leave(). */
 async function releaseReservation(channelId: string): Promise<void> {
-  await getSupabase()
-    .rpc('stop_screen_share', { target_channel: channelId })
-    .then(
-      () => undefined,
-      () => undefined
-    )
+  await withTimeout(
+    getSupabase()
+      .rpc('stop_screen_share', { target_channel: channelId })
+      .then(
+        () => undefined,
+        () => undefined
+      ),
+    8_000
+  ).catch(() => undefined)
 }
 
 function translateRpcError(message: string): string {
