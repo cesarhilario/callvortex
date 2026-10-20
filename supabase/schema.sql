@@ -425,7 +425,7 @@ create policy "emojis_owner_upload" on storage.objects
     bucket_id = 'emojis'
     and exists (
       select 1 from public.servers s
-      where s.id::text = (storage.foldername(name))[1] and s.owner_id = auth.uid()
+      where s.id::text = (storage.foldername(storage.objects.name))[1] and s.owner_id = auth.uid()
     )
   );
 
@@ -435,7 +435,7 @@ create policy "emojis_owner_delete" on storage.objects
     bucket_id = 'emojis'
     and exists (
       select 1 from public.servers s
-      where s.id::text = (storage.foldername(name))[1] and s.owner_id = auth.uid()
+      where s.id::text = (storage.foldername(storage.objects.name))[1] and s.owner_id = auth.uid()
     )
   );
 
