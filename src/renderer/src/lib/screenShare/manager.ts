@@ -331,11 +331,15 @@ export class ScreenShareManager {
       return
     }
 
-    // detecta encerramento pelo sistema (usuário fechou a janela/fonte)
+    // detecta encerramento pelo sistema (usuário fechou a janela/fonte ou
+    // clicou em "Parar de compartilhar"/"Stop sharing" na barra do sistema):
+    // o evento 'ended' da trilha OU o stream ficando inativo encerram o
+    // compartilhamento sozinhos, fechando o palco/ícone/barra na hora.
     this.clearEndedHandler()
     const [track] = stream.getVideoTracks()
     this.endedHandler = () => void this.stop().catch(() => undefined)
     track.addEventListener('ended', this.endedHandler)
+    stream.addEventListener('inactive', this.endedHandler)
 
     // publica a trilha nos PeerConnections e renegocia com cada par existente
     try {
@@ -506,7 +510,9 @@ export class ScreenShareManager {
 
   private clearEndedHandler(): void {
     if (!this.endedHandler) return
-    this.state.localStream?.getVideoTracks()[0]?.removeEventListener('ended', this.endedHandler)
+    const stream = this.state.localStream
+    stream?.getVideoTracks()[0]?.removeEventListener('ended', this.endedHandler)
+    stream?.removeEventListener('inactive', this.endedHandler)
     this.endedHandler = null
   }
 

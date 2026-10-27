@@ -75,6 +75,34 @@ export default function ScreenShareStage({ members }: { members: VoicePeerInfo[]
     return () => document.removeEventListener('fullscreenchange', onChange)
   }, [])
 
+  // Ao encerrar o compartilhamento (a trilha de vídeo termina/silencia), fecha
+  // a janela flutuante (PiP) e sai da tela cheia — senão o usuário fica preso
+  // numa janela cheia mostrando o último frame congelado.
+  useEffect(() => {
+    if (trackLive) return
+    if (typeof document === 'undefined') return
+    if (document.pictureInPictureElement) {
+      void document.exitPictureInPicture().catch(() => undefined)
+    }
+    if (document.fullscreenElement === stageRef.current) {
+      void document.exitFullscreen().catch(() => undefined)
+    }
+  }, [trackLive])
+
+  // Ao desmontar o palco (sharerId vira null = ninguém mais compartilha),
+  // garante que PiP e tela cheia não fiquem abertos "órfãos".
+  useEffect(() => {
+    return () => {
+      if (typeof document === 'undefined') return
+      if (document.pictureInPictureElement) {
+        void document.exitPictureInPicture().catch(() => undefined)
+      }
+      if (document.fullscreenElement === stageRef.current) {
+        void document.exitFullscreen().catch(() => undefined)
+      }
+    }
+  }, [])
+
   const toggleFullscreen = () => {
     const el = stageRef.current
     if (!el) return
