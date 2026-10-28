@@ -17,8 +17,9 @@ import { VOICE_REJOIN_MS, readVoiceSession } from './settings'
 import { playMessageSound } from './sounds'
 import { subscribeVoiceInvites, sendVoiceInvite } from './invites'
 import { writeVoiceSession } from './settings'
+import { effectivePermissions } from './roles'
 import type { AppContextValue, AuthState, Notice, SavedCredentials } from './app-types'
-import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, Sticker, VoiceInvite, VoicePeerInfo } from './types'
+import type { Channel, DmThreadWithOther, MemberRole, ModalType, Profile, Role, RolePermission, Screen, Server, ServerEmoji, Sticker, VoiceInvite, VoicePeerInfo } from './types'
 
 export type { Notice, SavedCredentials } from './app-types'
 
@@ -40,6 +41,14 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   const [channels, setChannels] = useState<Channel[]>([])
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
   const [serverEmojis, setServerEmojis] = useState<ServerEmoji[]>([])
+  // ------------------------------------------------------------
+  // Cargos do servidor ativo (estilo Discord): cargos + atribuições
+  // por membro, recarregados ao trocar de servidor e por Realtime.
+  // ------------------------------------------------------------
+  const [roles, setRoles] = useState<Role[]>([])
+  const [memberRoleIds, setMemberRoleIds] = useState<Record<string, string[]>>({})
+  // contador que forca quem exibe a lista de membros a recarregar (kick)
+  const [membersVersion, setMembersVersion] = useState(0)
   // figurinhas (stickers) disponíveis: pessoais minhas + do servidor ativo
   const [stickers, setStickers] = useState<Sticker[]>([])
   const [screen, setScreen] = useState<Screen | null>(null)
@@ -253,16 +262,167 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       cancelled = true
     }
   }, [authState, screen?.type, screen?.type === 'server' ? screen.serverId : null]) // eslint-disable-line react-hooks/exhaustive-deps
-
   // ------------------------------------------------------------
   // Canais de todos os servidores (mapa channel_id -> server_id):
   // recarrega quando a lista de servidores muda (criou/entrou/excluiu)
   // ------------------------------------------------------------
   // ------------------------------------------------------------
+  // Cargos do servidor ativo (estilo Discord)
+  // Cargos + atribuições chegam por consulta e se mantêm ao vivo via
+  // Realtime (roles / member_roles). A lista de membros do servidor
+  // reagrupa sozinha quando alguém cria/move/atribui um cargo.
+  // ------------------------------------------------------------
+  const reloadRoles = useCallback(async (serverId: string): Promise<void> => {
+    try {
+      const [r, mr] = await Promise.all([api.fetchRoles(serverId), api.fetchMemberRoles(serverId)])
+      setRoles(r)
+      const map: Record<string, string[]> = {}
+      for (const m of mr) {
+        ;(map[m.user_id] ??= []).push(m.role_id)
+      }
+      setMemberRoleIds(map)
+    } catch {
+      // sem permissão de leitura ou falha de rede: segue sem cargos (o app funciona)
+      setRoles([])
+      setMemberRoleIds({})
+    }
+  }, [])
+
+  useEffect(() => {
+    if (authState !== 'signedIn') return
+    if (screen?.type !== 'server') {
+      setRoles([])
+      setMemberRoleIds({})
+      return
+    }
+    const serverId = screen.serverId
+    let cancelled = false
+    void reloadRoles(serverId)
+    const supabase = getSupabase()
+    const ch = supabase.channel(`roles-live-${serverId}`)
+    ch.on('postgres_changes', { event: '*', schema: 'public', table: 'roles' }, () => {
+      if (!cancelled) void reloadRoles(serverId)
+    })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'member_roles' }, () => {
+        if (!cancelled) void reloadRoles(serverId)
+      })
+    void ch.subscribe()
+    return () => {
+      cancelled = true
+      void supabase.removeChannel(ch)
+    }
+  }, [authState, screen?.type, activeServerId, reloadRoles]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleCreateRole = useCallback(
+    async (name: string, color: string | null, permissions: RolePermission[]): Promise<boolean> => {
+      if (screen?.type !== 'server') return false
+      try {
+        await api.createRole(screen.serverId, { name: name.trim(), color, permissions })
+        await reloadRoles(screen.serverId)
+        notify('success', `Cargo "${name.trim()}" criado!`)
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Erro ao criar cargo')
+        return false
+      }
+    },
+    [screen, notify, reloadRoles]
+  )
+
+  const handleUpdateRole = useCallback(
+    async (roleId: string, fields: { name?: string; color?: string | null; permissions?: RolePermission[] }): Promise<boolean> => {
+      if (screen?.type !== 'server') return false
+      try {
+        await api.updateRole(roleId, fields)
+        await reloadRoles(screen.serverId)
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Erro ao salvar cargo')
+        return false
+      }
+    },
+    [screen, notify, reloadRoles]
+  )
+
+  const handleDeleteRole = useCallback(
+    async (roleId: string): Promise<boolean> => {
+      if (screen?.type !== 'server') return false
+      try {
+        await api.deleteRole(roleId)
+        await reloadRoles(screen.serverId)
+        notify('success', 'Cargo excluído.')
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Erro ao excluir cargo')
+        return false
+      }
+    },
+    [screen, notify, reloadRoles]
+  )
+
+  /** Move um cargo uma posição (up = mais alto). Renumera 1..n de cima para baixo. */
+  const handleMoveRole = useCallback(
+    async (roleId: string, direction: 'up' | 'down'): Promise<boolean> => {
+      if (screen?.type !== 'server') return false
+      const sorted = [...roles].sort((a, b) => b.position - a.position || a.name.localeCompare(b.name))
+      const idx = sorted.findIndex((r) => r.id === roleId)
+      const j = direction === 'up' ? idx - 1 : idx + 1
+      if (idx < 0 || j < 0 || j >= sorted.length) return false
+      ;[sorted[idx], sorted[j]] = [sorted[j], sorted[idx]]
+      try {
+        const base = sorted.length
+        for (let i = 0; i < sorted.length; i++) {
+          const pos = base - i
+          if (sorted[i].position !== pos) await api.updateRole(sorted[i].id, { position: pos })
+        }
+        await reloadRoles(screen.serverId)
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Você não pode mover cargos no seu nível ou acima dele.')
+        await reloadRoles(screen.serverId)
+        return false
+      }
+    },
+    [screen, roles, notify, reloadRoles]
+  )
+
+  const handleSetMemberRoles = useCallback(
+    async (userId: string, roleIds: string[]): Promise<boolean> => {
+      if (screen?.type !== 'server') return false
+      try {
+        await api.setMemberRoles(screen.serverId, userId, roleIds)
+        await reloadRoles(screen.serverId)
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Não foi possível salvar os cargos do membro')
+        return false
+      }
+    },
+    [screen, notify, reloadRoles]
+  )
+
+  const handleKickMember = useCallback(
+    async (userId: string, username: string): Promise<boolean> => {
+      if (screen?.type !== 'server') return false
+      try {
+        await api.kickMember(screen.serverId, userId)
+        await reloadRoles(screen.serverId)
+        setMembersVersion((v) => v + 1)
+        notify('success', `${username} foi removido do servidor.`)
+        return true
+      } catch (e) {
+        notify('error', e instanceof Error ? e.message : 'Não foi possível remover o membro')
+        return false
+      }
+    },
+    [screen, notify, reloadRoles]
+  )
+
+  // ----------------------------------------------------------
   // Figurinhas: minhas pessoais + as do servidor ativo (Etapa 4)
   // Recarrega ao trocar de tela/servidor e reage a INSERT/DELETE na
   // tabela `stickers` via Realtime (gestor adiciona sem reiniciar o app).
-  // ------------------------------------------------------------
+  // ----------------------------------------------------------
   const stickerServerId = screen?.type === 'server' ? screen.serverId : null
   useEffect(() => {
     if (authState !== 'signedIn') {
@@ -781,6 +941,20 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     setUnreadDms((prev) => (prev[threadId] ? { ...prev, [threadId]: 0 } : prev))
   }, [])
 
+  // ------------------------------------------------------------
+  // Permissões do usuário no servidor ativo (cargos estilo Discord)
+  // ------------------------------------------------------------
+  const hasServerPermission = useCallback(
+    (perm: RolePermission): boolean => {
+      if (authState !== 'signedIn' || !profile || screen?.type !== 'server') return false
+      const server = servers.find((s) => s.id === screen.serverId)
+      const isOwner = !!server && server.owner_id === profile.id
+      const myRoleIds = memberRoleIds[profile.id] ?? []
+      return effectivePermissions(isOwner, myRoleIds, roles).has(perm)
+    },
+    [authState, profile, screen, servers, memberRoleIds, roles]
+  )
+
   const value = useMemo<AppContextValue>(
     () => ({
       ...voice,
@@ -841,6 +1015,17 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       sendVoiceInviteTo,
       acceptVoiceInvite,
       declineVoiceInvite,
+      // cargos (estilo Discord)
+      roles,
+      memberRoleIds,
+      membersVersion,
+      handleCreateRole,
+      handleUpdateRole,
+      handleDeleteRole,
+      handleMoveRole,
+      handleSetMemberRoles,
+      handleKickMember,
+      hasServerPermission,
       notify
     }),
     [
@@ -900,6 +1085,16 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       sendVoiceInviteTo,
       acceptVoiceInvite,
       declineVoiceInvite,
+      roles,
+      memberRoleIds,
+      membersVersion,
+      handleCreateRole,
+      handleUpdateRole,
+      handleDeleteRole,
+      handleMoveRole,
+      handleSetMemberRoles,
+      handleKickMember,
+      hasServerPermission,
       notify
     ]
   )

@@ -1,4 +1,4 @@
-import type { Channel, DmThreadWithOther, ModalType, Profile, Screen, Server, ServerEmoji, Sticker, VoiceInvite, VoicePeerInfo } from './types'
+import type { Channel, DmThreadWithOther, ModalType, Profile, Role, RolePermission, Screen, Server, ServerEmoji, Sticker, VoiceInvite, VoicePeerInfo } from './types'
 import type { ScreenShareApi } from './useScreenShare'
 
 export type AuthState = 'loading' | 'signedOut' | 'signedIn'
@@ -51,6 +51,26 @@ export interface AppContextValue {
   handleCreateChannel: (name: string, type: 'text' | 'voice') => Promise<void>
   handleDeleteChannel: (channelId: string) => Promise<void>
   handleDeleteServer: () => Promise<void>
+  // ------------------------------------------------------------
+  // Cargos (estilo Discord)
+  // ------------------------------------------------------------
+  /** cargos do servidor ativo (do mais baixo para o mais alto) */
+  roles: Role[]
+  /** role_id por membro do servidor ativo (user_id -> ids) */
+  memberRoleIds: Record<string, string[]>
+  /** contador que muda quando a lista de membros deve ser recarregada */
+  membersVersion: number
+  handleCreateRole: (name: string, color: string | null, permissions: RolePermission[]) => Promise<boolean>
+  handleUpdateRole: (
+    roleId: string,
+    fields: { name?: string; color?: string | null; permissions?: RolePermission[] }
+  ) => Promise<boolean>
+  handleDeleteRole: (roleId: string) => Promise<boolean>
+  handleMoveRole: (roleId: string, direction: 'up' | 'down') => Promise<boolean>
+  handleSetMemberRoles: (userId: string, roleIds: string[]) => Promise<boolean>
+  handleKickMember: (userId: string, username: string) => Promise<boolean>
+  /** permissão efetiva do usuário no servidor ativo (dono/admin implicam tudo) */
+  hasServerPermission: (perm: RolePermission) => boolean
   sendChannelMessage: (channelId: string, content: string) => Promise<void>
   sendDmMessage: (threadId: string, content: string) => Promise<void>
   serverEmojis: ServerEmoji[]

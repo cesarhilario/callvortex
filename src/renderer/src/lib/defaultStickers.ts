@@ -18,9 +18,11 @@ const CATEGORY_LABELS: Record<string, string> = {
   simbolos: 'Símbolos',
   brasil: 'Brasil',
   natal: 'Natal',
-  capivara: 'Capivara',
   selvagens: 'Selvagens',
   planeta: 'Planeta',
+  felino: 'Felino',
+  haloween: 'Halloween',
+  capivara: 'Capivara',
   frutas: 'Frutas',
   fantasia: 'Fantasia'
 }

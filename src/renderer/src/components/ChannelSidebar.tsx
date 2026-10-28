@@ -37,6 +37,7 @@ export default function ChannelSidebar(): React.JSX.Element {
     speakingUsers,
     peerSignals,
     screenShareState,
+    hasServerPermission,
     unreadChannels,
     unreadDms,
     markChannelRead,
@@ -103,6 +104,17 @@ export default function ChannelSidebar(): React.JSX.Element {
                   }}
                 >
                   <span className="server-menu-icon">😀</span> Gerenciar emojis
+                </div>
+              )}
+              {(isOwner || hasServerPermission('manage_roles')) && (
+                <div
+                  className="server-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    openModal('manage-roles')
+                  }}
+                >
+                  <span className="server-menu-icon">🏷</span> Cargos
                 </div>
               )}
               <div

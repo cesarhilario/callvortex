@@ -236,7 +236,7 @@
 ### Implementação
 - `defaultStickers.ts`: Figurinhas padrão
 - Pasta `assets/stickers/`: Recursos estáticos
-- Múltiplas categorias: capivara, frutas, fantasia, objetos, planeta, reações, símbolos
+- Múltiplas categorias: reações, animais, comida, natureza, objetos, símbolos, brasil, natal, capivara, selvagens, planeta, felino, halloween, frutas, fantasia
 
 ---
 

@@ -1,6 +1,6 @@
 import { getSupabase } from './supabase'
 import { colorFromString, genInviteCode } from './types'
-import type { Channel, DmMessage, DmThreadWithOther, Message, Profile, Server, ServerEmoji, Sticker } from './types'
+import type { Channel, DmMessage, DmThreadWithOther, MemberRole, Message, Profile, Role, RolePermission, Server, ServerEmoji, Sticker } from './types'
 
 /**
  * Converte um erro em mensagem amigável (SEC-016).
@@ -424,6 +424,105 @@ export async function fetchMembers(serverId: string): Promise<Profile[]> {
     }
   }
   return members
+}
+
+// ------------------------------------------------------------
+// CARGOS (estilo Discord)
+// ------------------------------------------------------------
+
+/** Cargos de um servidor, do mais alto para o mais baixo. */
+export async function fetchRoles(serverId: string): Promise<Role[]> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('roles')
+    .select('id, server_id, name, color, position, permissions')
+    .eq('server_id', serverId)
+    .order('position', { ascending: true })
+    .order('name')
+  if (error) throw err('Erro ao carregar cargos', error)
+  return (data ?? []) as unknown as Role[]
+}
+
+/** Atribuições de cargos dos membros de um servidor. */
+export async function fetchMemberRoles(serverId: string): Promise<MemberRole[]> {
+  const supabase = getSupabase()
+  const { data, error } = await supabase
+    .from('member_roles')
+    .select('server_id, role_id, user_id')
+    .eq('server_id', serverId)
+  if (error) throw err('Erro ao carregar atribuições', error)
+  return (data ?? []) as unknown as MemberRole[]
+}
+
+export async function createRole(
+  serverId: string,
+  fields: { name: string; color: string | null; permissions: RolePermission[] }
+): Promise<Role> {
+  const supabase = getSupabase()
+  // novos cargos nascem na base da hierarquia (0) — a UI os move para cima
+  const { data, error } = await supabase
+    .from('roles')
+    .insert({ ...fields, server_id: serverId, position: 0 })
+    .select('id, server_id, name, color, position, permissions')
+    .single()
+  if (error) throw err('Erro ao criar cargo', error)
+  return data as unknown as Role
+}
+
+export async function updateRole(
+  roleId: string,
+  fields: { name?: string; color?: string | null; permissions?: RolePermission[]; position?: number }
+): Promise<void> {
+  const supabase = getSupabase()
+  const { error } = await supabase.from('roles').update(fields).eq('id', roleId)
+  if (error) throw err('Erro ao salvar cargo', error)
+}
+
+export async function deleteRole(roleId: string): Promise<void> {
+  const supabase = getSupabase()
+  const { error } = await supabase.from('roles').delete().eq('id', roleId)
+  if (error) throw err('Erro ao excluir cargo', error)
+}
+
+/** Atribui/edita os cargos de um membro: grava o conjunto completo. */
+export async function setMemberRoles(serverId: string, userId: string, roleIds: string[]): Promise<void> {
+  const supabase = getSupabase()
+  const { data: current, error: e1 } = await supabase
+    .from('member_roles')
+    .select('role_id')
+    .eq('server_id', serverId)
+    .eq('user_id', userId)
+  if (e1) throw err('Erro ao ler cargos do membro', e1)
+  const currentIds = new Set((current ?? []).map((r) => r.role_id as string))
+  const target = new Set(roleIds)
+  const toAdd = roleIds.filter((id) => !currentIds.has(id))
+  const toRemove = [...currentIds].filter((id) => !target.has(id))
+  if (toAdd.length > 0) {
+    const { error } = await supabase
+      .from('member_roles')
+      .insert(toAdd.map((role_id) => ({ server_id: serverId, role_id, user_id: userId })))
+    if (error) throw err('Erro ao atribuir cargo', error)
+  }
+  for (const role_id of toRemove) {
+    const { error } = await supabase
+      .from('member_roles')
+      .delete()
+      .eq('server_id', serverId)
+      .eq('user_id', userId)
+      .eq('role_id', role_id)
+    if (error) throw err('Erro ao remover cargo', error)
+  }
+}
+
+/** Expulsa membro do servidor (exige kick_members + hierarquia no banco). */
+export async function kickMember(serverId: string, userId: string): Promise<void> {
+  const supabase = getSupabase()
+  const { error } = await supabase
+    .from('server_members')
+    .delete()
+    .eq('server_id', serverId)
+    .eq('user_id', userId)
+  if (error) throw err('Erro ao remover membro', error)
 }
 
 export async function searchUsers(query: string): Promise<Profile[]> {

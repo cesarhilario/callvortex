@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useApp } from '../lib/useApp'
 import { getOrCreateDmThread, searchUsers, fetchMembers } from '../lib/api'
-import type { Profile, Sticker } from '../lib/types'
+import { ROLE_COLORS } from '../lib/roles'
+import { ROLE_PERMISSIONS, type MemberRole, type Profile, type Role, type RolePermission, type Sticker } from '../lib/types'
 import Avatar from './Avatar'
 
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }): React.JSX.Element {
@@ -578,6 +579,207 @@ function ManageStickersModal({ onClose }: { onClose: () => void }): React.JSX.El
   )
 }
 
+/**
+ * Gestão de cargos do servidor (estilo Discord).
+ * Lista ordenada do mais alto para o mais baixo; criar, renomear,
+ * recolorir, permissões, reordenar e remover respeitam a hierarquia
+ * validada também no banco: cargo no seu nível ou acima não é editável
+ * por quem não é dono/administrador.
+ */
+function ManageRolesModal({ onClose }: { onClose: () => void }): React.JSX.Element {
+  const { profile, servers, screen, roles, memberRoleIds, handleCreateRole, handleUpdateRole, handleDeleteRole, handleMoveRole, hasServerPermission } = useApp()
+  const [name, setName] = useState('')
+  const [color, setColor] = useState<string | null>(null)
+  const [perms, setPerms] = useState<RolePermission[]>([])
+  const [busy, setBusy] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editName, setEditName] = useState('')
+  const [editColor, setEditColor] = useState<string | null>(null)
+  const [editPerms, setEditPerms] = useState<RolePermission[]>([])
+
+  const activeServer = screen?.type === 'server' ? servers.find((s) => s.id === screen.serverId) : undefined
+  const isOwner = !!activeServer && activeServer.owner_id === profile?.id
+  const canManage = isOwner || hasServerPermission('manage_roles')
+
+  const sorted = [...roles].sort((a, b) => b.position - a.position || a.name.localeCompare(b.name))
+
+  const submitNew = async (e: React.FormEvent): Promise<void> => {
+    e.preventDefault()
+    if (busy || name.trim().length < 1) return
+    setBusy(true)
+    const ok = await handleCreateRole(name, color, perms)
+    setBusy(false)
+    if (ok) {
+      setName('')
+      setColor(null)
+      setPerms([])
+    }
+  }
+
+  const togglePerm = (list: RolePermission[], set: (v: RolePermission[]) => void, p: RolePermission): void => {
+    // Administrador implica todas as outras — ao marcar, limpa as demais
+    if (p === 'administrator') {
+      set(list.includes(p) ? [] : ['administrator'])
+      return
+    }
+    const next = list.includes('administrator') ? [] : list.includes(p) ? list.filter((x) => x !== p) : [...list, p]
+    set(next)
+  }
+
+  if (!canManage) {
+    return (
+      <ModalShell title="Cargos" onClose={onClose}>
+        <p className="modal-hint">Você não tem permissão para gerenciar cargos neste servidor.</p>
+        <div className="modal-actions">
+          <button type="button" className="btn-secondary" onClick={onClose}>
+            Fechar
+          </button>
+        </div>
+      </ModalShell>
+    )
+  }
+
+  const startEdit = (r: Role): void => {
+    setEditingId(r.id)
+    setEditName(r.name)
+    setEditColor(r.color)
+    setEditPerms([...r.permissions])
+  }
+
+  const saveEdit = async (): Promise<void> => {
+    if (!editingId) return
+    setBusy(true)
+    const ok = await handleUpdateRole(editingId, { name: editName.trim(), color: editColor, permissions: editPerms })
+    setBusy(false)
+    if (ok) setEditingId(null)
+  }
+
+  return (
+    <ModalShell title="Cargos do servidor" onClose={onClose}>
+      <div className="modal-form">
+        <form className="roles-create-row" onSubmit={(e) => void submitNew(e)}>
+          <input
+            className="modal-input"
+            placeholder="Nome do cargo (ex: Moderador)"
+            value={name}
+            maxLength={64}
+            onChange={(e) => setName(e.target.value)}
+          />
+          <div className="role-color-row" role="group" aria-label="Cor do cargo">
+            {ROLE_COLORS.map((c) => (
+              <button
+                key={c ?? 'none'}
+                type="button"
+                className={`role-color-dot ${color === c ? 'selected' : ''} ${c === null ? 'none' : ''}`}
+                style={c ? { background: c } : undefined}
+                title={c ? c : 'Sem cor'}
+                aria-pressed={color === c}
+                onClick={() => setColor(c)}
+              />
+            ))}
+          </div>
+          <div className="role-perms-row" role="group" aria-label="Permissões">
+            {ROLE_PERMISSIONS.map((p) => (
+              <label key={p.id} className="role-perm-toggle">
+                <input type="checkbox" checked={perms.includes(p.id)} onChange={() => togglePerm(perms, setPerms, p.id)} />
+                <span>{p.label}</span>
+              </label>
+            ))}
+          </div>
+          <button type="submit" className="btn-primary" disabled={busy || name.trim().length < 1}>
+            Criar cargo
+          </button>
+        </form>
+
+        <div className="roles-list">
+          <div className="roles-list-header">{sorted.length} {sorted.length === 1 ? 'cargo' : 'cargos'}</div>
+          {sorted.map((r) => {
+            const holders = Object.entries(memberRoleIds).filter(([, ids]) => ids.includes(r.id)).length
+            const isAdminLike = r.permissions.includes('administrator')
+            return (
+              <div key={r.id} className="roles-list-item" style={{ ['--role-color' as string]: r.color ?? '#99aab5' }}>
+                {editingId === r.id ? (
+                  <div className="roles-edit-form">
+                    <input className="modal-input" value={editName} maxLength={64} onChange={(e) => setEditName(e.target.value)} />
+                    <div className="role-color-row" role="group" aria-label="Cor do cargo">
+                      {ROLE_COLORS.map((c) => (
+                        <button
+                          key={c ?? 'none'}
+                          type="button"
+                          className={`role-color-dot ${editColor === c ? 'selected' : ''} ${c === null ? 'none' : ''}`}
+                          style={c ? { background: c } : undefined}
+                          title={c ? c : 'Sem cor'}
+                          aria-pressed={editColor === c}
+                          onClick={() => setEditColor(c)}
+                        />
+                      ))}
+                    </div>
+                    <div className="role-perms-row" role="group" aria-label="Permissões">
+                      {ROLE_PERMISSIONS.map((p) => (
+                        <label key={p.id} className="role-perm-toggle">
+                          <input
+                            type="checkbox"
+                            checked={editPerms.includes(p.id)}
+                            onChange={() => togglePerm(editPerms, setEditPerms, p.id)}
+                          />
+                          <span>{p.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="modal-actions">
+                      <button type="button" className="btn-secondary" onClick={() => setEditingId(null)}>
+                        Cancelar
+                      </button>
+                      <button type="button" className="btn-primary" disabled={busy || editName.trim().length < 1} onClick={() => void saveEdit()}>
+                        Salvar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <span className={`role-badge-dot ${r.color ? '' : 'none'}`} style={r.color ? { background: r.color } : undefined} />
+                    <div className="role-item-main">
+                      <span className="role-item-name">{r.name}</span>
+                      <span className="role-item-meta">
+                        {holders} {holders === 1 ? 'membro' : 'membros'}
+                        {isAdminLike ? ' · Administrador' : r.permissions.length > 0 ? ` · ${r.permissions.length} ${r.permissions.length === 1 ? 'permissão' : 'permissões'}` : ''}
+                      </span>
+                    </div>
+                    <div className="role-item-actions">
+                      <button className="ss-icon-btn" title="Mover para cima" aria-label={`Mover ${r.name} para cima`} onClick={() => void handleMoveRole(r.id, 'up')}>
+                        ↑
+                      </button>
+                      <button className="ss-icon-btn" title="Mover para baixo" aria-label={`Mover ${r.name} para baixo`} onClick={() => void handleMoveRole(r.id, 'down')}>
+                        ↓
+                      </button>
+                      <button className="ss-icon-btn" title="Editar cargo" aria-label={`Editar ${r.name}`} onClick={() => startEdit(r)}>
+                        ✎
+                      </button>
+                      <button
+                        className="ss-icon-btn danger"
+                        title="Excluir cargo"
+                        aria-label={`Excluir ${r.name}`}
+                        onClick={() => {
+                          if (window.confirm(`Excluir o cargo "${r.name}"? Todos que o possuem perdem a cor e as permissões.`)) {
+                            void handleDeleteRole(r.id)
+                          }
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })}
+          {sorted.length === 0 && <div className="modal-hint">Nenhum cargo ainda — crie o primeiro acima.</div>}
+        </div>
+      </div>
+    </ModalShell>
+  )
+}
+
 export default function Modals(): React.JSX.Element | null {
   const { modal, closeModal } = useApp()
   if (!modal) return null
@@ -596,6 +798,8 @@ export default function Modals(): React.JSX.Element | null {
       return <ManageEmojisModal onClose={closeModal} />
     case 'manage-stickers':
       return <ManageStickersModal onClose={closeModal} />
+    case 'manage-roles':
+      return <ManageRolesModal onClose={closeModal} />
     case 'voice-invite':
       return <VoiceInviteModal onClose={closeModal} />
     default:

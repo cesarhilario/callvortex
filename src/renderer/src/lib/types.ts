@@ -95,7 +95,42 @@ export interface VoiceInvite {
   invitedAt: number
 }
 
-export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | 'manage-stickers' | 'voice-invite' | null
+export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | 'manage-stickers' | 'voice-invite' | 'manage-roles' | null
+
+// ------------------------------------------------------------
+// Cargos (estilo Discord)
+// Permissões da matriz enxuta: Administrador (tudo), Gerenciar canais,
+// Gerenciar cargos e Expulsar membros. O dono do servidor tem todas
+// implícitas. Hierarquia: maior cargo de cada membro decide quem pode
+// mexer em quem.
+// ------------------------------------------------------------
+export type RolePermission = 'administrator' | 'manage_channels' | 'manage_roles' | 'kick_members'
+
+export const ROLE_PERMISSIONS: { id: RolePermission; label: string }[] = [
+  { id: 'administrator', label: 'Administrador' },
+  { id: 'manage_channels', label: 'Gerenciar canais' },
+  { id: 'manage_roles', label: 'Gerenciar cargos' },
+  { id: 'kick_members', label: 'Expulsar membros' }
+]
+
+export interface Role {
+  id: string
+  server_id: string
+  name: string
+  /** null = sem cor definida (nome em cinza, como o "@everyone" do Discord) */
+  color: string | null
+  /** maior = mais alto na hierarquia */
+  position: number
+  permissions: RolePermission[]
+  created_at?: string
+}
+
+/** Atribuição de um cargo a um membro (linha de member_roles). */
+export interface MemberRole {
+  server_id: string
+  role_id: string
+  user_id: string
+}
 
 export const AVATAR_COLORS = [
   '#5865f2',
