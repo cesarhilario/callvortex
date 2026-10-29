@@ -463,7 +463,7 @@ function VoiceConnectedPanel(): React.JSX.Element | null {
 }
 
 function UserPanel(): React.JSX.Element {
-  const { profile, onlineUsers, logout, updateAvatarUrl, notify } = useApp()
+  const { profile, onlineUsers, logout, updateAvatarUrl, notify, openModal } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   if (!profile) return <div className="user-panel" />
@@ -509,7 +509,7 @@ function UserPanel(): React.JSX.Element {
         <span className="user-status">{uploading ? 'Enviando foto…' : online ? 'Online' : 'Offline'}</span>
       </div>
       <div className="user-actions">
-        <button className="user-action" title="Configurações">
+        <button className="user-action" title="Configurações" onClick={() => openModal('settings')}>
           <GearIcon size={18} />
         </button>
         <button className="user-action logout" title="Sair" onClick={() => void logout()}>

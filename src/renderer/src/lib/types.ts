@@ -95,7 +95,7 @@ export interface VoiceInvite {
   invitedAt: number
 }
 
-export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | 'manage-stickers' | 'voice-invite' | 'manage-roles' | null
+export type ModalType = 'create-server' | 'join-server' | 'create-channel' | 'rename-channel' | 'start-dm' | 'manage-emojis' | 'manage-stickers' | 'voice-invite' | 'manage-roles' | 'permissions' | 'settings' | null
 
 // ------------------------------------------------------------
 // Cargos (estilo Discord)
