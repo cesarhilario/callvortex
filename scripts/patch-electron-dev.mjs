@@ -1,13 +1,4 @@
 #!/usr/bin/env node
-// ------------------------------------------------------------
-// patch-electron-dev — só macOS, só desenvolvimento.
-// O nome em negrito na barra de menus ("Electron") vem do Info.plist do
-// Electron.app dentro de node_modules; app.setName() não o altera em dev.
-// Aqui trocamos o nome para CallVortex e o ícone pela logo do app.
-// Idempotente; o app empacotado (electron-builder) já usa productName e
-// build/icon.png. Precisa ser reexecutado se o Electron for reinstalado.
-// Uso: node scripts/patch-electron-dev.mjs
-// ------------------------------------------------------------
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, copyFileSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -60,7 +51,6 @@ for (const key of ['CFBundleName', 'CFBundleDisplayName']) {
   }
 }
 
-// Ícone: gera o .icns a partir de build/icon.png; a marca ao lado evita refazer
 const stamp = join(electronDir, 'dist', '.callvortex-icon')
 const logoSig = existsSync(logo) ? String(readFileSync(logo).length) : ''
 const stamped = existsSync(stamp) ? readFileSync(stamp, 'utf8').trim() : ''
@@ -87,7 +77,6 @@ if (logoSig && stamped !== logoSig) {
 }
 
 if (changed) {
-  // força o Launch Services/Dock a reler nome e ícone
   execFileSync('touch', [app])
   console.log(`[patch-electron-dev] Electron.app → ${NAME}`)
 } else {

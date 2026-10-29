@@ -1,11 +1,6 @@
 import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import { IPC } from '../shared/ipc'
 
-/**
- * Menu nativo. "Configurações…" fica no menu do app no macOS (CallVortex) e em
- * Arquivo no Windows/Linux; o atalho (⌘, / Ctrl+,) é o accelerator do item.
- * O clique avisa o renderer, que abre o modal (ignorado fora da tela principal).
- */
 export function registerAppMenu(getWindow: () => BrowserWindow | null): void {
   const isMac = process.platform === 'darwin'
 
@@ -43,7 +38,6 @@ export function registerAppMenu(getWindow: () => BrowserWindow | null): void {
           submenu: [settingsItem, { type: 'separator' }, { role: 'quit', label: 'Sair' }]
         },
     { role: 'editMenu' },
-    // Recarregar/DevTools só em desenvolvimento
     ...(app.isPackaged ? [] : [{ role: 'viewMenu' } as MenuItemConstructorOptions]),
     { role: 'windowMenu' }
   ]

@@ -1,5 +1,3 @@
-// Contrato IPC compartilhado entre main, preload e renderer:
-// nomes de canais e tipos trafegados. Sem dependências de runtime.
 
 export const IPC = {
   credentialsSave: 'credentials:save',
@@ -19,7 +17,6 @@ export const IPC = {
   appOpenSettings: 'app:open-settings'
 } as const
 
-/** Sessão lembrada ("Lembrar de mim"): nunca guarda a senha, só o refresh token. */
 export interface SavedCredentials {
   email: string
   username: string
@@ -38,12 +35,9 @@ export interface FirewallFixResult {
   message: string
 }
 
-/** Protocolo do deep-link (callvortex://reset#...). */
 export const DEEP_LINK_PROTOCOL = 'callvortex'
-/** Host esperado no deep-link de redefinição de senha. */
 export const DEEP_LINK_RESET_HOST = 'reset'
 
-/** Estado de uma permissão de privacidade do sistema (só o macOS informa). */
 export type PermissionStatus = 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unknown'
 
 export interface PermissionsState {
@@ -51,7 +45,6 @@ export interface PermissionsState {
   screen: PermissionStatus
 }
 
-/** Painéis de configurações do sistema que o app sabe abrir (varia por SO). */
 export type SettingsPane = 'microphone' | 'screen' | 'local-network' | 'firewall'
 
 export interface AppInfo {
@@ -59,9 +52,7 @@ export interface AppInfo {
   version: string
   electron: string
   chrome: string
-  /** process.platform: 'darwin' | 'win32' | 'linux' */
   platform: string
   arch: string
-  /** versão do SO (process.getSystemVersion) */
   osVersion: string
 }

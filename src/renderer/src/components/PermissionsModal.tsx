@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from 'react'
 import type { PermissionStatus, PermissionsState, SettingsPane } from '../../../shared/ipc'
 import ModalShell from './ModalShell'
 
-/** Chave do localStorage: no macOS o modal abre sozinho só na primeira execução. */
 export const PERMISSIONS_SEEN_KEY = 'cv-mac-permissions-seen'
 
 export function hasSeenPermissions(): boolean {
@@ -17,7 +16,6 @@ function markSeen(): void {
   try {
     localStorage.setItem(PERMISSIONS_SEEN_KEY, '1')
   } catch {
-    // storage indisponível — o modal pode reaparecer, sem prejuízo
   }
 }
 
@@ -25,11 +23,8 @@ interface Row {
   id: string
   title: string
   description: string
-  /** painel do sistema a abrir; ausente = só orientação */
   pane?: SettingsPane
-  /** chave em PermissionsState; ausente = o sistema não permite consultar */
   key?: keyof PermissionsState
-  /** Windows: libera o Firewall com confirmação do UAC */
   fixFirewall?: boolean
 }
 
@@ -80,7 +75,6 @@ export default function PermissionsModal({ onClose }: { onClose: () => void }): 
     }
   }, [])
 
-  // Atualiza ao abrir e ao voltar das configurações do sistema (janela volta ao foco)
   useEffect(() => {
     void refresh()
     window.addEventListener('focus', refresh)
@@ -116,9 +110,6 @@ export default function PermissionsModal({ onClose }: { onClose: () => void }): 
   const act = async (row: Row): Promise<void> => {
     if (row.fixFirewall) return fixFirewall()
     if (!row.pane) return
-    // Microfone ainda não decidido (macOS): tenta o diálogo nativo. Em dev (app
-    // sem NSMicrophoneUsageDescription próprio) o sistema pode não mostrar
-    // nada; se continuar sem permissão, cai para os Ajustes.
     if (row.pane === 'microphone' && perms?.microphone === 'not-determined') {
       let granted = false
       try {

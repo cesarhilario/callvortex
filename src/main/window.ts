@@ -15,8 +15,6 @@ export function createMainWindow(): BrowserWindow {
     icon: join(__dirname, '../../build/icon.png'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      // sandbox ativado: o renderer fica isolado do Node — se qualquer página
-      // externa carregar ou houver XSS, o preload roda sem privilégios
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false
@@ -27,7 +25,6 @@ export function createMainWindow(): BrowserWindow {
     win.show()
   })
 
-  // Diagnóstico: se o renderer morrer (tela em branco), registra o motivo no terminal
   win.webContents.on('render-process-gone', (_event, details) => {
     console.error('[main] Renderer process gone ->', details.reason, '| exitCode:', details.exitCode)
   })
@@ -36,8 +33,6 @@ export function createMainWindow(): BrowserWindow {
     console.error('[main] Falha ao carregar a página:', errorCode, errorDescription)
   })
 
-  // Mensagens do console do renderer aparecem no terminal em dev
-  // (Electron 43 usa o objeto de evento como 1º argumento)
   if (!app.isPackaged) {
     win.webContents.on('console-message', (details) => {
       const d = details as unknown as { level?: string | number; message?: string }
@@ -52,13 +47,10 @@ export function createMainWindow(): BrowserWindow {
     })
   }
 
-  // Bloquear navegação da janela para qualquer site externo
-  // (protege o preload e o window.api de páginas não confiáveis)
   win.webContents.on('will-navigate', (event, url) => {
     if (!isAppUrl(url)) event.preventDefault()
   })
 
-  // Abrir links externos no navegador padrão — apenas http/https
   win.webContents.setWindowOpenHandler((details) => {
     try {
       const u = new URL(details.url)
@@ -66,12 +58,10 @@ export function createMainWindow(): BrowserWindow {
         shell.openExternal(details.url)
       }
     } catch {
-      // URL inválida — ignora
     }
     return { action: 'deny' }
   })
 
-  // electron-vite injeta ELECTRON_RENDERER_URL no modo dev
   if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
     win.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {

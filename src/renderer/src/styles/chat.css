@@ -134,7 +134,6 @@
   background: var(--bg-modifier-active);
 }
 
-/* Minhas mensagens: avatar, nome e texto alinhados à direita */
 .message-row.mine {
   flex-direction: row-reverse;
 }
@@ -151,7 +150,6 @@
   padding-left: 0;
   padding-right: 52px;
 }
-/* a lixeira vai para o lado oposto ao avatar */
 .message-row.mine .message-delete {
   right: auto;
   left: 8px;

@@ -39,9 +39,6 @@ export default function VoiceParticipantTiles({
         const speaking = joined && speakingUsers.has(m.userId)
         const sharing = screenShareState.sharerId === m.userId
         const vol = Math.round((peerVolumes[m.userId] ?? 1) * 100)
-        // Só o outro lado precisa de conexão: enquanto o par WebRTC existe e
-        // não chegou a 'connected' mostramos o carregamento. Sem conexão
-        // nenhuma (ainda sem oferta/par) não há o que mostrar.
         const connState = peerConnections[m.userId]
         const connecting = joined && !isMe && connState !== undefined && connState !== 'connected'
         const retrying = connState === 'disconnected' || connState === 'failed'

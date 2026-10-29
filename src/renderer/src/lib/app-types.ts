@@ -33,9 +33,7 @@ export interface AppContextValue {
   clearRecovery: () => void
   logout: () => Promise<void>
   savedCredentials: SavedCredentials | null
-  /** lembra a sessão atual (refresh token) para o login automático */
   storeCredentials: (meta: { email: string; username: string }) => Promise<void>
-  /** entra com a sessão lembrada; falha se o token expirou/foi revogado */
   loginWithSaved: () => Promise<void>
   forgetCredentials: () => Promise<void>
   selectServer: (serverId: string) => Promise<void>

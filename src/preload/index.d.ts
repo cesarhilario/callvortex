@@ -28,16 +28,11 @@ export interface Api {
     fixFirewall: () => Promise<FirewallFixResult>
   }
   permissions: {
-    /** estado das permissões (só o macOS informa; null nos demais) */
     get: () => Promise<PermissionsState | null>
-    /** mostra o pedido de microfone do sistema (macOS, se ainda não decidido) */
     requestMicrophone: () => Promise<boolean>
-    /** abre o painel correspondente nas configurações do sistema (false se não houver) */
     openSettings: (pane: SettingsPane) => Promise<boolean>
   }
-  /** menu nativo → Configurações…; retorna função para cancelar a inscrição */
   onOpenSettings: (cb: () => void) => () => void
-  /** nome/versão do app e do ambiente */
   getAppInfo: () => Promise<AppInfo | null>
   /**
    * Registra um callback para URLs `callvortex://` abertas pelo sistema

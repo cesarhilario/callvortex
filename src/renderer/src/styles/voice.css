@@ -259,7 +259,6 @@
   line-height: 0;
   transition: box-shadow 0.1s ease-out;
 }
-/* Aguardando a conexão WebRTC com o participante (até 'connected') */
 .voice-tile.connecting .voice-tile-avatar img,
 .voice-tile.connecting .voice-tile-avatar > :first-child {
   opacity: 0.55;

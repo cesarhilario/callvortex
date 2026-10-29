@@ -60,11 +60,9 @@ function Toast(): React.JSX.Element | null {
 
 function MainLayout(): React.JSX.Element {
   const { screen, voiceRoster, openModal } = useApp()
-  // macOS: na primeira execução, explica as permissões necessárias (voz/tela)
   useEffect(() => {
     if (window.api.platform === 'darwin' && !hasSeenPermissions()) openModal('permissions')
   }, [openModal])
-  // Menu nativo (⌘, no macOS / Ctrl+, nos demais → Configurações…)
   useEffect(() => window.api.onOpenSettings(() => openModal('settings')), [openModal])
   return (
     <div className="app-shell">

@@ -40,7 +40,6 @@ export interface VoiceApi {
   peerVolumes: Record<string, number>
   setPeerVolume: (userId: string, volume: number) => void
   peerSignals: Record<string, number>
-  /** estado da conexão WebRTC com cada participante (ausente = ainda sem conexão) */
   peerConnections: Record<string, RTCPeerConnectionState>
   micVolume: number
   setMicVolume: (volume: number) => void
@@ -116,8 +115,6 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
   const [peerConnections, setPeerConnections] = useState<Record<string, RTCPeerConnectionState>>({})
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>(() => readJson<Record<string, number>>(PEER_VOLUMES_KEY) ?? {})
 
-  // Os eventos de conexão podem se perder (reinscrição, recarga a quente):
-  // enquanto estiver no canal, relê o estado real das conexões a cada 1 s.
   useEffect(() => {
     const m = voiceManagerRef.current
     if (!m || !voiceChannelId) return

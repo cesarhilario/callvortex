@@ -35,7 +35,6 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   const [authState, setAuthState] = useState<AuthState>('loading')
   const [profile, setProfile] = useState<Profile | null>(null)
   const [savedCredentials, setSavedCredentials] = useState<SavedCredentials | null>(null)
-  // espelho do estado para o listener de auth (refresh tokens rotacionam)
   const savedCredentialsRef = useRef<SavedCredentials | null>(null)
   const [dataReady, setDataReady] = useState(false)
   const [servers, setServers] = useState<Server[]>([])
@@ -156,7 +155,6 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     savedCredentialsRef.current = savedCredentials
   }, [savedCredentials])
 
-  // Guardamos o refresh token da sessão atual — nunca a senha.
   const storeCredentials = useCallback(async (meta: { email: string; username: string }) => {
     const { data } = await getSupabase().auth.getSession()
     const refreshToken = data.session?.refresh_token
@@ -178,7 +176,6 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     if (!saved) throw new Error('Sem sessão lembrada.')
     const { data, error } = await getSupabase().auth.refreshSession({ refresh_token: saved.refreshToken })
     if (error || !data.session) {
-      // token inválido/revogado (4xx): esquece; erro de rede: mantém para tentar depois
       const status = (error as { status?: number } | null)?.status
       if (status && status >= 400 && status < 500) await forgetCredentials()
       throw error ?? new Error('Sessão expirada.')
@@ -196,7 +193,6 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     })
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN') setAuthState('signedIn')
-      // refresh tokens rotacionam: mantém o salvo em dia para o próximo início
       const saved = savedCredentialsRef.current
       if (saved && session && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') &&
           session.refresh_token !== saved.refreshToken) {

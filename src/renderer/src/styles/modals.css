@@ -170,7 +170,6 @@
   background: var(--bg-modifier-hover);
 }
 
-/* Modal de permissões do macOS */
 .perm-list {
   list-style: none;
   margin: 12px 0 0;
@@ -229,7 +228,6 @@
   margin-top: 8px;
 }
 
-/* Configurações (estilo "Sobre este app") */
 .settings-card {
   position: relative;
   width: 340px;

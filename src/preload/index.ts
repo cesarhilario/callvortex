@@ -31,15 +31,12 @@ const api = {
   voice: {
     fixFirewall: (): Promise<FirewallFixResult> => ipcRenderer.invoke(IPC.voiceFixFirewall)
   },
-  // Permissões do sistema (estado só no macOS) e atalhos para os ajustes
   permissions: {
     get: (): Promise<PermissionsState | null> => ipcRenderer.invoke(IPC.permissionsGet),
     requestMicrophone: (): Promise<boolean> => ipcRenderer.invoke(IPC.permissionsRequestMicrophone),
     openSettings: (pane: SettingsPane): Promise<boolean> => ipcRenderer.invoke(IPC.permissionsOpenSettings, pane)
   },
-  /** nome/versão do app e do ambiente (tela de Configurações) */
   getAppInfo: (): Promise<AppInfo | null> => ipcRenderer.invoke(IPC.appGetInfo),
-  /** o menu nativo (CallVortex/Arquivo → Configurações…) pediu para abrir as configurações */
   onOpenSettings: (cb: () => void): (() => void) => {
     const listener = (): void => cb()
     ipcRenderer.on(IPC.appOpenSettings, listener)

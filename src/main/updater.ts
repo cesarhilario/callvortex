@@ -1,11 +1,6 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import { autoUpdater } from 'electron-updater'
 
-/**
- * Atualizações automáticas (electron-updater + GitHub Releases):
- * verifica ao iniciar e a cada 4h; baixa em segundo plano e oferece
- * reiniciar. Só roda empacotado — no dev, ignora.
- */
 export function registerUpdater(getWindow: () => BrowserWindow | null): void {
   if (!app.isPackaged) return
   autoUpdater.autoDownload = true

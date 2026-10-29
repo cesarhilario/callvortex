@@ -8,15 +8,8 @@ import {
 } from '../../shared/ipc'
 import { isTrustedSender } from '../security'
 
-// ---------------------------------------------------------------------------
-// Permissões do sistema e informações do app (tela de Configurações).
-// No macOS, microfone e gravação de tela têm estado consultável; Rede Local e
-// Firewall não (o sistema não expõe), então só oferecemos o atalho. No Windows
-// abrimos a privacidade do microfone; no Linux não há painel padrão.
-// ---------------------------------------------------------------------------
 const IS_MAC = process.platform === 'darwin'
 
-/** URLs fixas (lista fechada) — o renderer só escolhe a chave, nunca a URL. */
 const SETTINGS_URLS: Partial<Record<NodeJS.Platform, Partial<Record<SettingsPane, string>>>> = {
   darwin: {
     microphone: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
@@ -43,8 +36,6 @@ export function registerPermissionsIpc(): void {
     return { microphone: mediaStatus('microphone'), screen: mediaStatus('screen') }
   })
 
-  // Só mostra o diálogo nativo enquanto o estado for "não decidido"; depois
-  // de negado, o macOS não pergunta de novo — o usuário precisa dos Ajustes.
   ipcMain.handle(IPC.permissionsRequestMicrophone, async (e): Promise<boolean> => {
     if (!IS_MAC || !isTrustedSender(e)) return false
     try {

@@ -5,19 +5,10 @@ import { IPC, type SavedCredentials } from '../../shared/ipc'
 import { isTrustedSender } from '../security'
 import { takePendingDeepLink } from '../deepLink'
 
-// ---------------------------------------------------------------------------
-// Credenciais lembradas ("Lembrar de mim")
-// Salvas criptografadas com safeStorage (DPAPI no Windows / Keychain no macOS)
-// em um arquivo dentro da pasta de dados do app — nunca em texto puro.
-// ---------------------------------------------------------------------------
 const MAX_FIELD_LEN = 512
 
 const credentialsFile = (): string => join(app.getPath('userData'), 'credentials.json')
 
-/**
- * No Linux sem keyring o safeStorage cai em `basic_text` (chave fixa, na
- * prática texto puro). Nesse caso preferimos NÃO lembrar a sessão.
- */
 function canEncryptSecurely(): boolean {
   if (!safeStorage.isEncryptionAvailable()) return false
   if (process.platform === 'linux') {
@@ -77,9 +68,6 @@ export function registerCredentialsIpc(): void {
       return false
     }
   })
-  // Entrega (e limpa) uma URL de deep-link pendente do primeiro lançamento.
-  // O renderer chama isto ao montar para não perder o link caso o evento
-  // 'auth:deep-link' tenha sido enviado antes do listener ser registrado.
   ipcMain.handle(IPC.authTakePendingDeepLink, (e): string | null => {
     if (!isTrustedSender(e)) return null
     return takePendingDeepLink()

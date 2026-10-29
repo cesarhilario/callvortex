@@ -11,17 +11,13 @@ import { registerScreenShareIpc } from './ipc/screenShare'
 import { registerVoiceIpc } from './ipc/voice'
 import { registerPermissionsIpc } from './ipc/permissions'
 
-// Nome do app (menu, diálogos) — sem isso o dev mostra "Electron"
 app.setName('CallVortex')
 
 let mainWindow: BrowserWindow | null = null
 
-// O áudio (WebRTC + processamento) precisa rodar sem exigir clique prévio
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
-// Captura de tela em Wayland via portal/PipeWire (sem efeito no X11/Windows)
 app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer')
 
-// Diagnóstico de voz (CDP): só em dev, com CV_REMOTE_DEBUG_PORT=9222
 if (!app.isPackaged && process.env.CV_REMOTE_DEBUG_PORT) {
   app.commandLine.appendSwitch('remote-debugging-port', process.env.CV_REMOTE_DEBUG_PORT)
 }
@@ -36,8 +32,6 @@ function openMainWindow(): void {
 
 registerProtocol()
 
-// Instância única: um segundo lançamento (ex.: clique no deep-link com o app
-// já aberto) entrega a URL para a instância existente em vez de abrir outra.
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
@@ -46,14 +40,12 @@ if (!app.requestSingleInstanceLock()) {
     if (url) deliverDeepLink(url, mainWindow)
   })
 
-  // macOS: deep-links chegam por este evento
   app.on('open-url', (event, url) => {
     event.preventDefault()
     if (url.startsWith(`${DEEP_LINK_PROTOCOL}://`)) deliverDeepLink(url, mainWindow)
   })
 
   app.whenReady().then(() => {
-    // Dock do macOS em dev: usa a logo do app (empacotado, o .icns já vem do build)
     if (process.platform === 'darwin' && !app.isPackaged) {
       const dockIcon = nativeImage.createFromPath(join(__dirname, '../../build/icon.png'))
       if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon)
@@ -67,8 +59,6 @@ if (!app.requestSingleInstanceLock()) {
     registerPermissionsIpc()
     registerUpdater(() => mainWindow)
 
-    // Deep-link no primeiro lançamento (Linux/Windows via argv). Definido
-    // ANTES de criar a janela para o 'ready-to-show' já encontrá-lo.
     setPendingDeepLink(deepLinkFromArgv(process.argv))
 
     openMainWindow()
