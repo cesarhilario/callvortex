@@ -254,9 +254,51 @@
   color: #fff;
 }
 .voice-tile-avatar {
+  position: relative;
   border-radius: 50%;
   line-height: 0;
   transition: box-shadow 0.1s ease-out;
+}
+/* Aguardando a conexão WebRTC com o participante (até 'connected') */
+.voice-tile.connecting .voice-tile-avatar img,
+.voice-tile.connecting .voice-tile-avatar > :first-child {
+  opacity: 0.55;
+}
+.voice-tile-spinner {
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 3px solid transparent;
+  border-top-color: var(--blurple);
+  border-right-color: var(--blurple);
+  animation: voice-tile-spin 0.9s linear infinite;
+  pointer-events: none;
+}
+.voice-tile-connecting {
+  font-size: 11px;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 10px;
+  background: var(--bg-modifier-active);
+  color: var(--text-muted);
+  white-space: nowrap;
+  animation: voice-tile-pulse 1.4s ease-in-out infinite;
+}
+@keyframes voice-tile-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes voice-tile-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-tile-spinner,
+  .voice-tile-connecting {
+    animation: none;
+  }
 }
 .voice-tile-avatar.speaking {
   box-shadow: 0 0 0 3px var(--green);

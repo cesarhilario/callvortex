@@ -101,6 +101,7 @@ export interface AppContextValue {
   peerVolumes: Record<string, number>
   setPeerVolume: (userId: string, volume: number) => void
   peerSignals: Record<string, number>
+  peerConnections: Record<string, RTCPeerConnectionState>
   micVolume: number
   setMicVolume: (volume: number) => void
   internetPing: number | null

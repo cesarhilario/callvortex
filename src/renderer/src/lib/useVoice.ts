@@ -40,6 +40,8 @@ export interface VoiceApi {
   peerVolumes: Record<string, number>
   setPeerVolume: (userId: string, volume: number) => void
   peerSignals: Record<string, number>
+  /** estado da conexão WebRTC com cada participante (ausente = ainda sem conexão) */
+  peerConnections: Record<string, RTCPeerConnectionState>
   micVolume: number
   setMicVolume: (volume: number) => void
   outputDevices: MediaDeviceInfo[]
@@ -111,7 +113,26 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
   const [selectedOutputId, setSelectedOutputId] = useState<string | null>(() => readRaw(OUTPUT_DEVICE_KEY))
   const [outputVolume, setOutputVolumeState] = useState<number>(() => readClampedNumber(OUTPUT_VOLUME_KEY, 1, 0, 1))
   const [peerSignals, setPeerSignals] = useState<Record<string, number>>({})
+  const [peerConnections, setPeerConnections] = useState<Record<string, RTCPeerConnectionState>>({})
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>(() => readJson<Record<string, number>>(PEER_VOLUMES_KEY) ?? {})
+
+  // Os eventos de conexão podem se perder (reinscrição, recarga a quente):
+  // enquanto estiver no canal, relê o estado real das conexões a cada 1 s.
+  useEffect(() => {
+    const m = voiceManagerRef.current
+    if (!m || !voiceChannelId) return
+    const sync = (): void => {
+      const next = m.getPeerConnectionStates()
+      setPeerConnections((prev) => {
+        const keys = Object.keys(next)
+        const same = keys.length === Object.keys(prev).length && keys.every((k) => prev[k] === next[k])
+        return same ? prev : next
+      })
+    }
+    sync()
+    const iv = window.setInterval(sync, 1000)
+    return () => window.clearInterval(iv)
+  }, [voiceChannelId])
 
   // ------------------------------------------------------------
   // Callbacks do VoiceManager → estado do contexto
@@ -146,6 +167,9 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
     m.onPeerSignal = (userId, quality) => {
       setPeerSignals((prev) => (prev[userId] === quality ? prev : { ...prev, [userId]: quality }))
     }
+    m.onPeerConnectionState = (userId, state) => {
+      setPeerConnections((prev) => (prev[userId] === state ? prev : { ...prev, [userId]: state }))
+    }
     m.onError = (msg) => notify('error', msg)
     return () => {
       void m.leave()
@@ -153,6 +177,7 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
       m.onSpeaking = null
       m.onLocalLevel = null
       m.onPeerSignal = null
+      m.onPeerConnectionState = null
       m.onError = null
     }
   }, [notify])
@@ -249,6 +274,7 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
     setSpeakingUsers(new Set())
     setVoiceInputLevel(0)
     setPeerSignals({})
+    setPeerConnections({})
     clearVoiceSession()
     prevVoiceRosterRef.current = new Set()
     playLeaveSound()
@@ -279,6 +305,7 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
     setSpeakingUsers(new Set())
     setVoiceInputLevel(0)
     setPeerSignals({})
+    setPeerConnections({})
   }, [])
 
   const onJoinedChannelDeleted = useCallback(() => {
@@ -377,6 +404,7 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
       peerVolumes,
       setPeerVolume,
       peerSignals,
+      peerConnections,
       micVolume,
       setMicVolume,
       outputDevices,
@@ -413,6 +441,7 @@ export function useVoice({ profile, activeServerId, notify }: UseVoiceDeps): Voi
       peerVolumes,
       setPeerVolume,
       peerSignals,
+      peerConnections,
       micVolume,
       setMicVolume,
       outputDevices,
