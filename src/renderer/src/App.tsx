@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { AppProvider, useApp } from './lib/useApp'
 import { supabaseReady } from './lib/supabase'
 import AuthScreen from './components/AuthScreen'
@@ -11,6 +12,7 @@ import Logo from './components/Logo'
 import ScreenShareStage from './components/ScreenShareStage'
 import ScreenSharePicker from './components/ScreenSharePicker'
 import VoiceInvitePopups from './components/VoiceInvitePopups'
+import { hasSeenPermissions } from './components/PermissionsModal'
 
 function SetupScreen(): React.JSX.Element {
   return (
@@ -57,7 +59,11 @@ function Toast(): React.JSX.Element | null {
 }
 
 function MainLayout(): React.JSX.Element {
-  const { screen, voiceRoster } = useApp()
+  const { screen, voiceRoster, openModal } = useApp()
+  useEffect(() => {
+    if (window.api.platform === 'darwin' && !hasSeenPermissions()) openModal('permissions')
+  }, [openModal])
+  useEffect(() => window.api.onOpenSettings(() => openModal('settings')), [openModal])
   return (
     <div className="app-shell">
       <ServerRail />

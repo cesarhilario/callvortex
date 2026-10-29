@@ -134,6 +134,27 @@
   background: var(--bg-modifier-active);
 }
 
+.message-row.mine {
+  flex-direction: row-reverse;
+}
+.message-row.mine .message-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  text-align: right;
+}
+.message-row.mine .message-meta {
+  flex-direction: row-reverse;
+}
+.message-row.mine.grouped .message-content {
+  padding-left: 0;
+  padding-right: 52px;
+}
+.message-row.mine .message-delete {
+  right: auto;
+  left: 8px;
+}
+
 /* input */
 .chat-input-area {
   position: relative;

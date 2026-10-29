@@ -169,3 +169,143 @@
   border-radius: 4px;
   background: var(--bg-modifier-hover);
 }
+
+.perm-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.perm-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-tile);
+  border-radius: 6px;
+}
+.perm-info {
+  flex: 1;
+  min-width: 0;
+}
+.perm-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+}
+.perm-desc {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.perm-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--bg-modifier-active);
+  color: var(--text-muted);
+}
+.perm-badge-ok {
+  background: rgba(35, 165, 90, 0.2);
+  color: var(--green);
+}
+.perm-badge-bad {
+  background: rgba(242, 63, 67, 0.2);
+  color: var(--red);
+}
+.perm-badge-warn {
+  background: rgba(240, 178, 50, 0.2);
+  color: #f0b232;
+}
+.perm-error {
+  color: var(--red);
+  margin-top: 8px;
+}
+
+.settings-card {
+  position: relative;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 36px 28px 24px;
+}
+.settings-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.settings-close:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-normal);
+}
+.settings-logo {
+  margin-bottom: 14px;
+}
+.settings-name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+}
+.settings-version {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.settings-info {
+  width: 100%;
+  margin: 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+.settings-info-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.settings-info-row dt {
+  text-align: right;
+  font-weight: 600;
+}
+.settings-info-row dd {
+  margin: 0;
+  text-align: left;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+.settings-btn {
+  background: var(--bg-input);
+  color: var(--text-normal);
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 18px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-btn:hover {
+  background: var(--bg-modifier-active);
+}
+.settings-foot {
+  margin: 18px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}

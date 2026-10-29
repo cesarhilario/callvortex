@@ -35,6 +35,7 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
   const [authState, setAuthState] = useState<AuthState>('loading')
   const [profile, setProfile] = useState<Profile | null>(null)
   const [savedCredentials, setSavedCredentials] = useState<SavedCredentials | null>(null)
+  const savedCredentialsRef = useRef<SavedCredentials | null>(null)
   const [dataReady, setDataReady] = useState(false)
   const [servers, setServers] = useState<Server[]>([])
   const [dms, setDms] = useState<DmThreadWithOther[]>([])
@@ -150,15 +151,37 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       .catch(() => setSavedCredentials(null))
   }, [])
 
-  const storeCredentials = useCallback(async (creds: SavedCredentials) => {
+  useEffect(() => {
+    savedCredentialsRef.current = savedCredentials
+  }, [savedCredentials])
+
+  const storeCredentials = useCallback(async (meta: { email: string; username: string }) => {
+    const { data } = await getSupabase().auth.getSession()
+    const refreshToken = data.session?.refresh_token
+    if (!refreshToken) return
+    const creds: SavedCredentials = { ...meta, refreshToken }
+    savedCredentialsRef.current = creds
     setSavedCredentials(creds)
     await window.api.saveCredentials(creds)
   }, [])
 
   const forgetCredentials = useCallback(async () => {
+    savedCredentialsRef.current = null
     setSavedCredentials(null)
     await window.api.clearCredentials()
   }, [])
+
+  const loginWithSaved = useCallback(async () => {
+    const saved = savedCredentialsRef.current
+    if (!saved) throw new Error('Sem sessão lembrada.')
+    const { data, error } = await getSupabase().auth.refreshSession({ refresh_token: saved.refreshToken })
+    if (error || !data.session) {
+      const status = (error as { status?: number } | null)?.status
+      if (status && status >= 400 && status < 500) await forgetCredentials()
+      throw error ?? new Error('Sessão expirada.')
+    }
+    setAuthState('signedIn')
+  }, [forgetCredentials])
 
   // ------------------------------------------------------------
   // Sessão
@@ -168,8 +191,15 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
     supabase.auth.getSession().then(({ data }) => {
       setAuthState(data.session ? 'signedIn' : 'signedOut')
     })
-    const { data: sub } = supabase.auth.onAuthStateChange((event) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN') setAuthState('signedIn')
+      const saved = savedCredentialsRef.current
+      if (saved && session && (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') &&
+          session.refresh_token !== saved.refreshToken) {
+        const next = { ...saved, refreshToken: session.refresh_token }
+        savedCredentialsRef.current = next
+        void window.api.saveCredentials(next)
+      }
       if (event === 'SIGNED_OUT') {
         voice.reset()
         setAuthState('signedOut')
@@ -977,6 +1007,7 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       logout,
       savedCredentials,
       storeCredentials,
+      loginWithSaved,
       forgetCredentials,
       selectServer,
       selectChannel,
@@ -1049,6 +1080,7 @@ export function AppProvider({ children }: { children: React.ReactNode }): React.
       logout,
       savedCredentials,
       storeCredentials,
+      loginWithSaved,
       forgetCredentials,
       selectServer,
       selectChannel,

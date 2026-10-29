@@ -1,20 +1,13 @@
-export interface SavedCredentials {
-  email: string
-  password: string
-  username: string
-}
+import type {
+  AppInfo,
+  FirewallFixResult,
+  PermissionsState,
+  SavedCredentials,
+  ScreenSourceInfo,
+  SettingsPane
+} from '../shared/ipc'
 
-export interface ScreenSourceInfo {
-  id: string
-  name: string
-  thumbnail: string | null
-  icon: string | null
-}
-
-export interface FirewallFixResult {
-  ok: boolean
-  message: string
-}
+export type { AppInfo, FirewallFixResult, PermissionsState, SavedCredentials, ScreenSourceInfo, SettingsPane }
 
 export interface Api {
   platform: string
@@ -34,6 +27,13 @@ export interface Api {
     /** libera o áudio no Firewall do Windows (abre confirmação UAC) */
     fixFirewall: () => Promise<FirewallFixResult>
   }
+  permissions: {
+    get: () => Promise<PermissionsState | null>
+    requestMicrophone: () => Promise<boolean>
+    openSettings: (pane: SettingsPane) => Promise<boolean>
+  }
+  onOpenSettings: (cb: () => void) => () => void
+  getAppInfo: () => Promise<AppInfo | null>
   /**
    * Registra um callback para URLs `callvortex://` abertas pelo sistema
    * (ex.: link de redefinição de senha do e-mail). Retorna uma função para

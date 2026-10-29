@@ -4,32 +4,9 @@ import { getOrCreateDmThread, searchUsers, fetchMembers } from '../lib/api'
 import { ROLE_COLORS } from '../lib/roles'
 import { ROLE_PERMISSIONS, type MemberRole, type Profile, type Role, type RolePermission, type Sticker } from '../lib/types'
 import Avatar from './Avatar'
-
-function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  return (
-    <div
-      className="modal-overlay"
-      onMouseDown={(e) => {
-        if (e.target === ref.current) onClose()
-      }}
-    >
-      <div className="modal-card" ref={ref}>
-        <h2 className="modal-title">{title}</h2>
-        {children}
-      </div>
-    </div>
-  )
-}
+import ModalShell from './ModalShell'
+import PermissionsModal from './PermissionsModal'
+import SettingsModal from './SettingsModal'
 
 function CreateServerModal({ onClose }: { onClose: () => void }): React.JSX.Element {
   const { handleCreateServer } = useApp()
@@ -802,6 +779,10 @@ export default function Modals(): React.JSX.Element | null {
       return <ManageRolesModal onClose={closeModal} />
     case 'voice-invite':
       return <VoiceInviteModal onClose={closeModal} />
+    case 'permissions':
+      return <PermissionsModal onClose={closeModal} />
+    case 'settings':
+      return <SettingsModal onClose={closeModal} />
     default:
       return null
   }

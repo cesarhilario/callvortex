@@ -1,5 +1,6 @@
 import type { Channel, DmThreadWithOther, ModalType, Profile, Role, RolePermission, Screen, Server, ServerEmoji, Sticker, VoiceInvite, VoicePeerInfo } from './types'
 import type { ScreenShareApi } from './useScreenShare'
+import type { SavedCredentials } from '../../../shared/ipc'
 
 export type AuthState = 'loading' | 'signedOut' | 'signedIn'
 
@@ -8,11 +9,7 @@ export interface Notice {
   text: string
 }
 
-export interface SavedCredentials {
-  email: string
-  password: string
-  username: string
-}
+export type { SavedCredentials }
 
 /** Contrato público do contexto do app — consumido por todos os componentes. */
 export interface AppContextValue {
@@ -36,7 +33,8 @@ export interface AppContextValue {
   clearRecovery: () => void
   logout: () => Promise<void>
   savedCredentials: SavedCredentials | null
-  storeCredentials: (creds: SavedCredentials) => Promise<void>
+  storeCredentials: (meta: { email: string; username: string }) => Promise<void>
+  loginWithSaved: () => Promise<void>
   forgetCredentials: () => Promise<void>
   selectServer: (serverId: string) => Promise<void>
   selectChannel: (channelId: string) => void
@@ -101,6 +99,7 @@ export interface AppContextValue {
   peerVolumes: Record<string, number>
   setPeerVolume: (userId: string, volume: number) => void
   peerSignals: Record<string, number>
+  peerConnections: Record<string, RTCPeerConnectionState>
   micVolume: number
   setMicVolume: (volume: number) => void
   internetPing: number | null

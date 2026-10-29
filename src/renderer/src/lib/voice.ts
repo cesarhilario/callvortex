@@ -377,6 +377,12 @@ export class VoiceManager {
   onRealtimeStatus: ((health: RealtimeHealth) => void) | null = null
   onError: ((message: string) => void) | null = null
 
+  getPeerConnectionStates(): Record<string, RTCPeerConnectionState> {
+    const out: Record<string, RTCPeerConnectionState> = {}
+    for (const [id, pc] of this.pcs) out[id] = pc.connectionState
+    return out
+  }
+
   get joinedChannelId(): string | null {
     return this.channelId
   }

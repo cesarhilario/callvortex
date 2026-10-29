@@ -3,11 +3,11 @@ import { useApp } from '../lib/useApp'
 import Logo from './Logo'
 
 export default function AuthScreen(): React.JSX.Element {
-  const { login, register, resetPassword, notify, savedCredentials, storeCredentials, forgetCredentials } = useApp()
+  const { login, register, resetPassword, notify, savedCredentials, storeCredentials, forgetCredentials, loginWithSaved } = useApp()
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login')
   const [email, setEmail] = useState(savedCredentials?.email ?? '')
   const [username, setUsername] = useState(savedCredentials?.username ?? '')
-  const [password, setPassword] = useState(savedCredentials?.password ?? '')
+  const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -18,17 +18,17 @@ export default function AuthScreen(): React.JSX.Element {
   useEffect(() => {
     if (autoLoginTried.current) return
     if (mode === 'forgot') return
-    if (!savedCredentials?.email || !savedCredentials.password) return
+    if (!savedCredentials?.email || !savedCredentials.refreshToken) return
     autoLoginTried.current = true
     setBusy(true)
-    login(savedCredentials.email, savedCredentials.password)
+    loginWithSaved()
       .catch(() => {
         // não conseguiu entrar automaticamente (ex.: sem rede) — deixa o
         // formulário preenchido para o usuário clicar em Entrar
-        setError('Não foi possível entrar automaticamente. Confira os dados abaixo.')
+        setError('Não foi possível entrar automaticamente. Entre novamente.')
       })
       .finally(() => setBusy(false))
-  }, [savedCredentials, login, mode])
+  }, [savedCredentials, loginWithSaved, mode])
 
   const submit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
@@ -69,7 +69,7 @@ export default function AuthScreen(): React.JSX.Element {
       }
       // guarda (ou apaga) as credenciais conforme o checkbox
       if (remember) {
-        await storeCredentials({ email: email.trim(), password, username: username.trim() })
+        await storeCredentials({ email: email.trim(), username: username.trim() })
       } else {
         await forgetCredentials()
       }

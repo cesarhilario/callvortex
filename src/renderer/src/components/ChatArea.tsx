@@ -295,7 +295,7 @@ export default function ChatArea(): React.JSX.Element {
           const m = item.msg as Msg
           const isMine = m.author_id === profile?.id
           return (
-            <div className={`message-row ${item.grouped ? 'grouped' : ''}`} key={`${m.id}-${i}`}>
+            <div className={`message-row ${item.grouped ? 'grouped' : ''} ${isMine ? 'mine' : ''}`} key={`${m.id}-${i}`}>
               {!item.grouped && (
                 <div className="message-avatar">
                   <Avatar name={m.author.username} color={m.author.avatar_color} size={40} url={m.author.avatar_url} />
