@@ -1,20 +1,13 @@
-export interface SavedCredentials {
-  email: string
-  password: string
-  username: string
-}
+import type {
+  AppInfo,
+  FirewallFixResult,
+  PermissionsState,
+  SavedCredentials,
+  ScreenSourceInfo,
+  SettingsPane
+} from '../shared/ipc'
 
-export interface ScreenSourceInfo {
-  id: string
-  name: string
-  thumbnail: string | null
-  icon: string | null
-}
-
-export interface FirewallFixResult {
-  ok: boolean
-  message: string
-}
+export type { AppInfo, FirewallFixResult, PermissionsState, SavedCredentials, ScreenSourceInfo, SettingsPane }
 
 export interface Api {
   platform: string
@@ -34,6 +27,18 @@ export interface Api {
     /** libera o áudio no Firewall do Windows (abre confirmação UAC) */
     fixFirewall: () => Promise<FirewallFixResult>
   }
+  permissions: {
+    /** estado das permissões (só o macOS informa; null nos demais) */
+    get: () => Promise<PermissionsState | null>
+    /** mostra o pedido de microfone do sistema (macOS, se ainda não decidido) */
+    requestMicrophone: () => Promise<boolean>
+    /** abre o painel correspondente nas configurações do sistema (false se não houver) */
+    openSettings: (pane: SettingsPane) => Promise<boolean>
+  }
+  /** menu nativo → Configurações…; retorna função para cancelar a inscrição */
+  onOpenSettings: (cb: () => void) => () => void
+  /** nome/versão do app e do ambiente */
+  getAppInfo: () => Promise<AppInfo | null>
   /**
    * Registra um callback para URLs `callvortex://` abertas pelo sistema
    * (ex.: link de redefinição de senha do e-mail). Retorna uma função para

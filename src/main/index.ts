@@ -1,500 +1,80 @@
-import { app, shell, BrowserWindow, ipcMain, safeStorage, session, desktopCapturer, dialog } from 'electron'
+import { app, BrowserWindow, nativeImage } from 'electron'
 import { join } from 'path'
-import { readFile, writeFile, rm } from 'fs/promises'
-import { execFile } from 'child_process'
-import { promisify } from 'util'
-import { autoUpdater } from 'electron-updater'
+import { DEEP_LINK_PROTOCOL } from '../shared/ipc'
+import { createMainWindow } from './window'
+import { registerPermissionHandlers } from './security'
+import { deepLinkFromArgv, deliverDeepLink, registerProtocol, setPendingDeepLink } from './deepLink'
+import { registerUpdater } from './updater'
+import { registerAppMenu } from './menu'
+import { registerCredentialsIpc } from './ipc/credentials'
+import { registerScreenShareIpc } from './ipc/screenShare'
+import { registerVoiceIpc } from './ipc/voice'
+import { registerPermissionsIpc } from './ipc/permissions'
 
-const execFileAsync = promisify(execFile)
+// Nome do app (menu, diálogos) — sem isso o dev mostra "Electron"
+app.setName('CallVortex')
 
-// ---------------------------------------------------------------------------
-// Deep-link callvortex:// (redefinição de senha)
-// O e-mail de reset enviado pelo Supabase aponta para `callvortex://reset#...`
-// e o sistema operacional reabre ESTE app com a URL. Guardamos a URL pendente
-// até a janela estar pronta para entregá-la ao renderer.
-// ---------------------------------------------------------------------------
-const PROTOCOL = 'callvortex'
 let mainWindow: BrowserWindow | null = null
-let pendingDeepLink: string | null = null
-
-/** Extrai uma URL callvortex:// dos argumentos de linha de comando. */
-function deepLinkFromArgv(argv: string[]): string | null {
-  return argv.find((a) => a.startsWith(`${PROTOCOL}://`)) ?? null
-}
-
-/** Envia a URL ao renderer; se ainda não há janela, guarda para depois. */
-function deliverDeepLink(url: string): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    if (mainWindow.webContents.isLoading()) {
-      mainWindow.webContents.once('did-finish-load', () => {
-        mainWindow?.webContents.send('auth:deep-link', url)
-      })
-    } else {
-      mainWindow.webContents.send('auth:deep-link', url)
-    }
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-  } else {
-    pendingDeepLink = url
-  }
-}export interface FirewallFixResult {
-  ok: boolean
-  message: string
-}
-
-/**
- * Libera o áudio P2P no Firewall do Windows para este executável.
- * Roda `netsh advfirewall` ELEVADO (Start-Process -Verb RunAs), o que abre
- * o prompt de confirmação do Windows (UAC) — o usuário só precisa clicar
- * em "Sim". Idempotente: remove regras antigas antes de criar as novas.
- */
-async function fixWindowsFirewall(): Promise<FirewallFixResult> {
-  const exe = process.execPath.replace(/'/g, "''")
-  // Script interno (rodará elevado): limpa e recria as regras in+out.
-  const inner = [
-    `netsh advfirewall firewall delete rule name='CallVortex' >$null 2>&1`,
-    `netsh advfirewall firewall add rule name='CallVortex' dir=in action=allow program='${exe}' enable=yes profile=any`,
-    `netsh advfirewall firewall add rule name='CallVortex' dir=out action=allow program='${exe}' enable=yes profile=any`
-  ].join('; ')
-  // EncodedCommand evita qualquer problema de escape/aspas entre processos.
-  const inner64 = Buffer.from(inner, 'utf16le').toString('base64')
-  try {
-    await execFileAsync('powershell.exe', [
-      '-NoProfile', '-WindowStyle', 'Hidden', '-Command',
-      `try { Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-EncodedCommand','${inner64}' } catch { exit 1223 }`
-    ], { timeout: 120_000 })
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code ?? ''
-    if (code.includes('1223')) {
-      return { ok: false, message: 'Você cancelou a confirmação do Windows. Sem ela, não dá para liberar o áudio.' }
-    }
-    return { ok: false, message: 'Não foi possível abrir a confirmação do Windows. Libere manualmente pelo painel do Firewall.' }
-  }
-  // Verificação SEM elevação: se a regra existe, funcionou.
-  try {
-    const { stdout } = await execFileAsync('netsh.exe',
-      ['advfirewall', 'firewall', 'show', 'rule', 'name=CallVortex'], { timeout: 15_000 })
-    if (/CallVortex/i.test(stdout)) {
-      return { ok: true, message: 'Firewall liberado! Saia da sala e volte para reconectar com áudio.' }
-    }
-  } catch { /* netsh indisponível — assume sucesso do UAC */ }
-  return { ok: true, message: 'Regras aplicadas. Saia da sala e volte para reconectar.' }
-}
-
-function registerVoiceIpc(): void {
-  ipcMain.handle('voice:fix-firewall', async (e): Promise<FirewallFixResult> => {
-    if (!isTrustedSender(e)) return { ok: false, message: 'Origem não confiável.' }
-    if (process.platform !== 'win32') {
-      return { ok: false, message: 'Esta correção é específica do Windows.' }
-    }
-    return fixWindowsFirewall()
-  })
-}
-
-/**
- * Atualizações automáticas (electron-updater + GitHub Releases):
- * verifica ao iniciar e a cada 4h; baixa em segundo plano e oferece
- * reiniciar. Só roda empacotado — no dev, ignora.
- */
-function registerUpdater(): void {
-  if (!app.isPackaged) return
-  autoUpdater.autoDownload = true
-  autoUpdater.on('update-downloaded', async () => {
-    const win = BrowserWindow.getAllWindows()[0]
-    if (!win) return
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'info',
-      title: 'Atualização pronta',
-      message: 'Uma nova versão do CallVortex foi baixada.',
-      detail: 'Reinicie agora para aplicar. A chamada atual será encerrada.',
-      buttons: ['Reiniciar agora', 'Depois'],
-      defaultId: 0
-    })
-    if (response === 0) autoUpdater.quitAndInstall()
-  })
-  autoUpdater.on('error', (err) => {
-    console.log('[updater] erro (ignorável offline):', err.message.slice(0, 120))
-  })
-  void autoUpdater.checkForUpdatesAndNotify().catch(() => undefined)
-  setInterval(() => void autoUpdater.checkForUpdatesAndNotify().catch(() => undefined), 4 * 60 * 60 * 1000)
-}
 
 // O áudio (WebRTC + processamento) precisa rodar sem exigir clique prévio
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required')
 // Captura de tela em Wayland via portal/PipeWire (sem efeito no X11/Windows)
 app.commandLine.appendSwitch('enable-features', 'WebRTCPipeWireCapturer')
 
-/**
- * Sessão Wayland: o xdg-desktop-portal é o ÚNICO picker de tela. Chamar
- * `desktopCapturer.getSources()` já abre o diálogo do portal, e devolver a
- * fonte enumerada no handler abre um SEGUNDO diálogo (sessões PipeWire são
- * isoladas e o id enumerado é inválido para captura). Por isso, no Wayland
- * pulamos a listagem e entregamos uma fonte sintética — o Chromium abre o
- * portal exatamente uma vez, na hora de capturar.
- */
-const IS_WAYLAND =
-  process.platform === 'linux' && (process.env.XDG_SESSION_TYPE === 'wayland' || Boolean(process.env.WAYLAND_DISPLAY))
-
-/**
- * Áudio do sistema (WASAPI loopback) — somente o Windows oferece. É a única
- * forma de capturar o áudio reproduzido pela máquina no Electron; em
- * Linux/macOS o handler simplesmente não entrega áudio e a captura fica só
- * com vídeo (comportamento original).
- */
-const SUPPORTS_SYSTEM_AUDIO = process.platform === 'win32'
-
-// TEMPORÁRIO (diagnóstico de voz): expõe o CDP quando CV_REMOTE_DEBUG_PORT=9222
-if (process.env.CV_REMOTE_DEBUG_PORT) {
+// Diagnóstico de voz (CDP): só em dev, com CV_REMOTE_DEBUG_PORT=9222
+if (!app.isPackaged && process.env.CV_REMOTE_DEBUG_PORT) {
   app.commandLine.appendSwitch('remote-debugging-port', process.env.CV_REMOTE_DEBUG_PORT)
 }
 
-// ---------------------------------------------------------------------------
-// Credenciais lembradas ("Lembrar de mim")
-// Salvas criptografadas com safeStorage (DPAPI no Windows / Keychain no macOS)
-// em um arquivo dentro da pasta de dados do app — nunca em texto puro.
-// ---------------------------------------------------------------------------
-interface SavedCredentials {
-  email: string
-  password: string
-  username: string
-}
-
-const credentialsFile = (): string => join(app.getPath('userData'), 'credentials.json')
-
-async function saveCredentials(creds: SavedCredentials): Promise<boolean> {
-  try {
-    if (!safeStorage.isEncryptionAvailable()) return false
-    await writeFile(credentialsFile(), safeStorage.encryptString(JSON.stringify(creds)))
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function loadCredentials(): Promise<SavedCredentials | null> {
-  try {
-    const raw = await readFile(credentialsFile())
-    if (!safeStorage.isEncryptionAvailable()) return null
-    const parsed = JSON.parse(safeStorage.decryptString(raw)) as SavedCredentials
-    if (!parsed || typeof parsed.email !== 'string' || typeof parsed.password !== 'string') return null
-    return { email: parsed.email, password: parsed.password, username: typeof parsed.username === 'string' ? parsed.username : '' }
-  } catch {
-    return null
-  }
-}
-
-// Só aceita chamadas IPC vindas do frame principal da nossa janela — assim,
-// nenhuma página externa (ou iframe) consegue ler/gravar credenciais.
-function isTrustedSender(event: Electron.IpcMainInvokeEvent): boolean {
-  const frame = event.senderFrame
-  if (!frame) return false
-  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-    // dev: apenas a origem do dev server (ex.: http://localhost:5173)
-    return frame.url.startsWith(process.env['ELECTRON_RENDERER_URL'])
-  }
-  // produção: apenas o bundle local (file://) — o frame principal do app
-  return frame.url.startsWith('file://')
-}
-
-function registerCredentialsIpc(): void {
-  ipcMain.handle('credentials:save', (e, creds: SavedCredentials) => {
-    if (!isTrustedSender(e)) return false
-    return saveCredentials(creds)
-  })
-  ipcMain.handle('credentials:load', (e) => {
-    if (!isTrustedSender(e)) return null
-    return loadCredentials()
-  })
-  ipcMain.handle('credentials:clear', async (e) => {
-    if (!isTrustedSender(e)) return false
-    try {
-      await rm(credentialsFile(), { force: true })
-      return true
-    } catch {
-      return false
-    }
-  })
-  // Entrega (e limpa) uma URL de deep-link pendente do primeiro lançamento.
-  // O renderer chama isto ao montar para não perder o link caso o evento
-  // 'auth:deep-link' tenha sido enviado antes do listener ser registrado.
-  ipcMain.handle('auth:take-pending-deep-link', (e): string | null => {
-    if (!isTrustedSender(e)) return null
-    const url = pendingDeepLink
-    pendingDeepLink = null
-    return url
-  })
-}
-
-// ---------------------------------------------------------------------------
-// Compartilhamento de tela: lista as fontes capturáveis (telas e janelas).
-// O desktopCapturer só existe no processo principal; o renderer recebe
-// apenas metadados (id, nome, miniatura) e faz a captura em si via
-// getUserMedia — nenhum acesso genérico ao Node é exposto.
-// ---------------------------------------------------------------------------
-interface ScreenSourceInfo {
-  id: string
-  name: string
-  thumbnail: string | null
-  icon: string | null
-}
-
-/** Fonte escolhida no picker aguardando o getDisplayMedia() do renderer. */
-let pendingScreenSourceId: string | null = null
-/** Instante em que a fonte foi escolhida — descarta escolhas antigas. */
-let pendingScreenSourceAt = 0
-/** Uma escolha vale por este tempo; reemissões do Chromium são imediatas. */
-const PENDING_SOURCE_TTL_MS = 30_000
-
-/**
- * Fontes exatas devolvidas pela última listagem do picker, indexadas por id.
- * No Wayland cada `getSources()` abre o diálogo do portal; reaproveitar o
- * objeto já listado no handler do getDisplayMedia evita um SEGUNDO diálogo
- * e o descasamento de ids (que resultava em NotAllowedError).
- */
-const lastScreenSources = new Map<string, Electron.DesktopCapturerSource>()
-
-function registerScreenShareIpc(): void {
-  // Informa o renderer se a sessão é Wayland (a UI pula o picker interno).
-  ipcMain.handle('screen-share:is-wayland', (e): boolean => {
-    if (!isTrustedSender(e)) return false
-    return IS_WAYLAND
-  })
-
-  // Áudio do sistema (loopback) só existe no Windows (ver Streams.audio no
-  // handler abaixo). O renderer usa isto para decidir se pede áudio no
-  // getDisplayMedia — assim Linux/macOS mantêm exatamente o comportamento
-  // antigo (só vídeo), sem risco de a requisição falhar.
-  ipcMain.handle('screen-share:supports-system-audio', (e): boolean => {
-    if (!isTrustedSender(e)) return false
-    return SUPPORTS_SYSTEM_AUDIO
-  })
-
-  ipcMain.handle('screen-share:get-sources', async (e): Promise<ScreenSourceInfo[]> => {
-    if (!isTrustedSender(e)) return []
-    try {
-      const sources = await desktopCapturer.getSources({
-        types: ['screen', 'window'],
-        thumbnailSize: { width: 320, height: 180 },
-        fetchWindowIcons: true
-      })
-      if (!app.isPackaged) console.log('[main] get-sources:', sources.length, 'fontes')
-      const visible = sources.slice(0, 50)
-      // guarda os objetos nativos da fonte para o handler reutilizar
-      lastScreenSources.clear()
-      for (const s of visible) lastScreenSources.set(s.id, s)
-      return visible.map((s) => ({
-        id: s.id,
-        name: s.name.trim() || (s.id.startsWith('screen:') ? 'Tela inteira' : 'Janela'),
-        thumbnail: s.thumbnail.isEmpty() ? null : s.thumbnail.toDataURL(),
-        icon: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : null
-      }))
-    } catch {
-      return []
-    }
-  })
-
-  // Registra a fonte escolhida no nosso picker; o getDisplayMedia() do
-  // renderer será atendido pelo handler abaixo usando essa fonte.
-  ipcMain.handle('screen-share:select-source', (e, sourceId: unknown): boolean => {
-    if (!isTrustedSender(e)) return false
-    if (typeof sourceId !== 'string' || sourceId.length === 0 || sourceId.length > 256) return false
-    pendingScreenSourceId = sourceId
-    pendingScreenSourceAt = Date.now()
-    return true
-  })
-
-  // Captura de tela no Electron moderno: o renderer chama
-  // navigator.mediaDevices.getDisplayMedia() e AQUI decidimos qual fonte
-  // entregar — a escolhida no nosso picker. Esse é o único caminho que
-  // funciona em Wayland (portal/PipeWire) e também cobre X11 e Windows.
-  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
-    // O callback é de uso ÚNICO e o Chromium pode reemitir a mesma
-    // requisição (comum em Wayland/PipeWire): guarda contra chamada dupla,
-    // que derrubaria a captura com "One-time callback was called more than once".
-    let answered = false
-    const answer = (streams: Electron.Streams): void => {
-      if (answered) return
-      answered = true
-      try {
-        callback(streams)
-      } catch {
-        // callback já consumido por uma reemissão anterior — ignora
-      }
-    }
-    /**
-     * Áudio do sistema: só quando o renderer pediu E a plataforma suporta
-     * (loopback = Windows). Sem isso a requisição com áudio seria respondida
-     * apenas com vídeo e o renderer não receberia a trilha de áudio.
-     */
-    const withVideo = (video: Electron.DesktopCapturerSource): Electron.Streams => {
-      const streams: Electron.Streams = { video }
-      if (request.audioRequested && SUPPORTS_SYSTEM_AUDIO) streams.audio = 'loopback'
-      return streams
-    }
-    // Wayland: não enumera (isso abriria o portal) nem reusa uma fonte.
-    // Entrega um id sintético; o Chromium/PipeWire abre o portal UMA vez,
-    // no início da captura, e o usuário escolhe a tela/janela ali.
-    if (IS_WAYLAND) {
-      answer(withVideo({ id: 'screen:0:0', name: 'Screen' } as Electron.DesktopCapturerSource))
-      return
-    }
-
-    const wanted = pendingScreenSourceId
-    const fresh = wanted !== null && Date.now() - pendingScreenSourceAt < PENDING_SOURCE_TTL_MS
-    if (!fresh) {
-      answer({})
-      return
-    }
-    // Reaproveita o objeto listado no picker — sem novo getSources(), que no
-    // Wayland dispararia outro diálogo do portal e poderia trazer ids
-    // diferentes do escolhido (→ NotAllowedError).
-    const cached = lastScreenSources.get(wanted)
-    if (cached) {
-      answer(withVideo(cached))
-      return
-    }
-    // NÃO limpa a fonte: o Chromium pode reemitir a MESMA requisição (comum
-    // em Wayland/PipeWire) como nova invocação deste handler; limpá-la levaria
-    // a segunda tentativa a answer({}) → NotAllowedError. A escolha é
-    // substituída no próximo select-source e expira pelo TTL.
-    void desktopCapturer
-      .getSources({ types: ['screen', 'window'] })
-      .then((sources) => {
-        const source = sources.find((s) => s.id === wanted)
-        if (source) answer(withVideo(source))
-        else answer({})
-      })
-      .catch(() => answer({}))
-  })
-}
-
-function createWindow(): void {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    minWidth: 720,
-    minHeight: 540,
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: '#1e1f22',
-    title: 'CallVortex',
-    icon: join(__dirname, '../../build/icon.png'),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      // sandbox ativado: o renderer fica isolado do Node — se qualquer página
-      // externa carregar ou houver XSS, o preload roda sem privilégios
-      sandbox: true,
-      contextIsolation: true,
-      nodeIntegration: false
-    }
-  })
-  const win = mainWindow
-
-  win.on('ready-to-show', () => {
-    win.show()
-  })
-
+function openMainWindow(): void {
+  const win = createMainWindow()
+  mainWindow = win
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
-
-  // Diagnóstico: se o renderer morrer (tela em branco), registra o motivo no terminal
-  win.webContents.on('render-process-gone', (_event, details) => {
-    console.error('[main] Renderer process gone ->', details.reason, '| exitCode:', details.exitCode)
-  })
-
-  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-    console.error('[main] Falha ao carregar a página:', errorCode, errorDescription)
-  })
-
-  // Mensagens do console do renderer aparecem no terminal em dev
-  // (Electron 43 usa o objeto de evento como 1º argumento)
-  if (!app.isPackaged) {
-    mainWindow.webContents.on('console-message', (details) => {
-      const d = details as unknown as { level?: string | number; message?: string }
-      const isError = d.level === 'error' || d.level === 3
-      const isWarn = d.level === 'warning' || d.level === 2
-      const isDevNoise = typeof d.message === 'string' && d.message.includes('Autofocus processing')
-      if (!isError && !isWarn && !isDevNoise) {
-        console.log(`[renderer]`, d.message ?? '')
-      } else if (isError) {
-        console.error(`[renderer]`, d.message ?? '')
-      }
-    })
-  }
-
-  // Bloquear navegação da janela para qualquer site externo
-  // (protege o preload e o window.api de páginas não confiáveis)
-  mainWindow.webContents.on('will-navigate', (event, url) => {
-    const allowed = !app.isPackaged && process.env['ELECTRON_RENDERER_URL']
-      ? url.startsWith(process.env['ELECTRON_RENDERER_URL'])
-      : url.startsWith('file://')
-    if (!allowed) event.preventDefault()
-  })
-
-  // Abrir links externos no navegador padrão — apenas http/https
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    try {
-      const u = new URL(details.url)
-      if (u.protocol === 'https:' || u.protocol === 'http:') {
-        shell.openExternal(details.url)
-      }
-    } catch {
-      // URL inválida — ignora
-    }
-    return { action: 'deny' }
-  })
-
-  // electron-vite injeta ELECTRON_RENDERER_URL no modo dev
-  if (!app.isPackaged && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
 }
 
-// Registro do protocolo callvortex:// (deep-link de redefinição de senha).
-// Em dev no Linux/Windows, o registro funciona via app.setAsDefaultProtocolClient;
-// no macOS o SO usa o Info.plist (feito pelo electron-builder em produção).
-if (process.defaultApp && process.argv.length >= 2) {
-  // Dev: passa o caminho do app como argumento para o registro funcionar
-  app.setAsDefaultProtocolClient(PROTOCOL, process.execPath, [join(process.cwd(), process.argv[1])])
-} else {
-  app.setAsDefaultProtocolClient(PROTOCOL)
-}
+registerProtocol()
 
 // Instância única: um segundo lançamento (ex.: clique no deep-link com o app
 // já aberto) entrega a URL para a instância existente em vez de abrir outra.
-const gotSingleInstanceLock = app.requestSingleInstanceLock()
-if (!gotSingleInstanceLock) {
+if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.on('second-instance', (_event, argv) => {
     const url = deepLinkFromArgv(argv)
-    if (url) deliverDeepLink(url)
+    if (url) deliverDeepLink(url, mainWindow)
   })
 
   // macOS: deep-links chegam por este evento
   app.on('open-url', (event, url) => {
     event.preventDefault()
-    if (url.startsWith(`${PROTOCOL}://`)) deliverDeepLink(url)
+    if (url.startsWith(`${DEEP_LINK_PROTOCOL}://`)) deliverDeepLink(url, mainWindow)
   })
 
   app.whenReady().then(() => {
+    // Dock do macOS em dev: usa a logo do app (empacotado, o .icns já vem do build)
+    if (process.platform === 'darwin' && !app.isPackaged) {
+      const dockIcon = nativeImage.createFromPath(join(__dirname, '../../build/icon.png'))
+      if (!dockIcon.isEmpty()) app.dock?.setIcon(dockIcon)
+    }
+    app.setAboutPanelOptions({ applicationName: 'CallVortex', applicationVersion: app.getVersion() })
+    registerAppMenu(() => mainWindow)
+    registerPermissionHandlers()
     registerCredentialsIpc()
     registerScreenShareIpc()
     registerVoiceIpc()
-    registerUpdater()
+    registerPermissionsIpc()
+    registerUpdater(() => mainWindow)
 
     // Deep-link no primeiro lançamento (Linux/Windows via argv). Definido
     // ANTES de criar a janela para o 'ready-to-show' já encontrá-lo.
-    const initial = deepLinkFromArgv(process.argv)
-    if (initial) pendingDeepLink = initial
+    setPendingDeepLink(deepLinkFromArgv(process.argv))
 
-    createWindow()
+    openMainWindow()
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+      if (BrowserWindow.getAllWindows().length === 0) openMainWindow()
     })
   })
 }
